@@ -47,12 +47,43 @@ the browser client at `/app`. Use the ports reported by the stack.
 bun run dev
 ```
 
+### Independent server: storage bootstrap
+
+The first server migration step can run without Electron:
+
+```sh
+bun run server:dev --data-dir .openbot/server
+```
+
+Bun starts this command, but the process uses Node.js 24 and the existing `tsx` loader. The
+database uses `node:sqlite`. The installed Bun 1.3.14 cannot load that module; compatibility with
+the declared Bun 1.4.2 has not been verified. A change to `bun:sqlite` is separate work.
+
+The command requires an explicit data directory. On its first start, that directory must be empty.
+It refuses existing desktop profiles before opening their database. Later starts recognize the
+server's owner marker and use an exclusive lock. Do not share the directory with Electron.
+
+The process prints its actual loopback address. `GET /health/ready` reports `stage: "storage"`
+and the database schema version. Use `--port <port>` to choose a port. No application, account,
+agent, provider or scheduler routes are enabled. The Web client is not connected to this entry.
+The owner marker is not a replacement for database or credential migration.
+
+Ctrl+C or SIGTERM closes the listener and database, then releases the directory lock. A parent
+Node process can request the same shutdown over its private IPC channel. A crash can leave the
+lock file behind; startup refuses it. Do not remove that lock until the recorded process has
+been confirmed stopped. This step has no automatic crash recovery or takeover.
+
+`bun run test:server-bootstrap` starts real Node child processes and writes its report and test
+databases under `.openbot-build/server-bootstrap/`. It never opens the desktop profile.
+
 ## Commands
 
 | Command | Use |
 | --- | --- |
 | `bun run dev` | Start the existing host development stack. |
 | `bun run dev:api` | Start the account application and Web entry. |
+| `bun run server:dev --data-dir <directory>` | Start the independent storage bootstrap on loopback. |
+| `bun run test:server-bootstrap` | Check the Node bootstrap, shutdown and data preservation. |
 | `bun run dev:status` | Show this checkout's development processes. |
 | `bun run dev:stop` | Stop this checkout's development stack. |
 | `bun run typecheck:node` | Check host, backend, preload and script types. |

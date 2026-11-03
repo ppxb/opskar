@@ -43,6 +43,11 @@ in [README.md](../README.md#commands).
 
 ## Further work
 
+The first independent entry is now in `src/server`. It starts the existing database under Node
+with a dedicated directory and reports storage readiness on loopback. It does not yet start
+agents, providers, schedulers, the account service or the Web client. See
+[storage bootstrap](../README.md#independent-server-storage-bootstrap).
+
 Private Web hosting still needs local account-service storage and runtime adapters, private
 authentication, local connection-service configuration and an explicit outbound-data policy.
 Gitea, monitoring and CI/CD integration are separate work.

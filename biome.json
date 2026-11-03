@@ -154,7 +154,7 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["**/main/**", "**/backend/**", "**/preload/**"],
+                    "group": ["**/main/**", "**/backend/**", "**/preload/**", "**/src/server/**"],
                     "message": "The renderer reaches main only through the IPC contract. Declare a channel in packages/contracts and go through window.openbot."
                   }
                 ]
@@ -185,6 +185,26 @@
       }
     },
     {
+      "includes": ["src/server/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["electron", "electron/**", "**/main/**", "**/preload/**", "**/renderer/**"],
+                    "message": "The Node host uses backend services and explicit adapters, not Electron or renderer modules."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["packages/contracts/src/**/*.ts"],
       "linter": {
         "rules": {
@@ -206,6 +226,7 @@
                       "@openai/**",
                       "openai",
                       "**/src/main/**",
+                      "**/src/server/**",
                       "**/src/backend/**",
                       "**/src/preload/**",
                       "**/src/renderer/**",

@@ -12,6 +12,7 @@
     "tools/vitest/**/*.ts",
     "src/backend/**/*.ts",
     "src/main/**/*.ts",
+    "src/server/**/*.ts",
     "src/preload/**/*.ts",
     "packages/contracts/src/**/*.ts",
     "packages/logging/src/**/*.ts"
