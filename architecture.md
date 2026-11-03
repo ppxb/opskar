@@ -1,6 +1,6 @@
 # OPSKAR 架构设计
 
-> 状态：设计草案 v0.4 · 2026-11-02
+> 状态：设计草案 v0.5 · 2026-11-03
 > 范围：约 100 台异构服务器，无 Kubernetes，逐步收敛到 Docker 部署
 > 定位：自研运维控制层，参考 dsh-superagent、rakazo / DS-Bot 的部分设计与实现
 > 实现状态：当前仓库只有说明文档；本文中的模块、接口、命令和部署流程均为待建设方案
@@ -121,7 +121,7 @@ flowchart TB
   READ --> PROD["生产主机与只读接口"]
   READ --> E[("证据存储：S3 / MinIO")]
   SB --> E
-  FORGE --> CI["构建 runner：测试、构建、发布镜像"]
+  FORGE --> CI["构建：PR 检查 / 可信发布，执行环境隔离"]
   CI --> REG["Registry：不可变 digest"]
   CP --> DEP["发布执行器：策略校验、锁、审批"]
   REG --> DEP
@@ -162,6 +162,7 @@ interface ExecutorPort {
   execute(job: AuthorizedJob, signal: AbortSignal): Promise<ActionResult>;
   reconcile(job: AuthorizedJob): Promise<
     | { state: 'succeeded'; result: ActionResult }
+    | { state: 'failed' | 'cancelled'; result: ActionResult }
     | { state: 'not_started' }
     | { state: 'running' }
     | { state: 'unknown'; reason: string }
@@ -170,6 +171,8 @@ interface ExecutorPort {
 ```
 
 以上为接口方向，`AuthorizedJob` 和 `ActionResult` 应在共享契约中定义。类型名本身不提供安全保障：授权任务必须由服务端签发，执行器验证任务记录、范围、有效期和当前策略。
+
+`failed` / `cancelled` 表示已确认远端动作结束。`ActionResult` 同时记录 `side_effects: none | partial | complete | unknown`、已完成步骤、错误码和证据引用；本地超时或触发 AbortSignal 不足以证明远端已停止。动作结果与重试决定分开：执行器报告事实，控制层按第 5.3 节决定重试、补偿或转人工。
 
 ### 3.3 模型回合与长任务
 
@@ -190,6 +193,7 @@ interface ExecutorPort {
 |---|---|---|
 | Source | 一个配置好的事件来源 | 身份、读取位置和接收范围由适配器维护 |
 | Trigger | 一次不可变输入事件 | 外部事件 ID 唯一；正文不能覆盖来源身份 |
+| AlertOccurrence | 同一来源的一轮告警发生，Stage 3 引入 | 以来源、fingerprint、startsAt 标识；与投递事件和工单分别记录 |
 | Thread | 外部请求或事件的讨论上下文 | Gitea Issue / PR、飞书话题分别使用稳定 ID |
 | Decision | 接受、忽略、拒绝或评估失败的记录 | 记录策略版本和理由 |
 | Mandate | 一项工作的授权快照 | 明确对象、环境、动作、依据和有效期 |
@@ -209,15 +213,16 @@ Mandate 至少包含：
 id, ticket_id, origin_trigger_id, requester/source_identity,
 basis(explicit_request | routine | policy_rule),
 policy_version, matched_rule_ids,
-scope(environment, host_ids, service_ids, repository_ids, allowed_actions),
+scope(environment, host_ids, service_ids, service_instance_ids, repository_ids, allowed_actions),
 created_at, expires_at, withdrawn_at
 ```
 
 - 主机选择器在接单时展开为明确的主机 ID，并保存 inventory commit；新加入的机器不会自动进入旧工单。
+- 服务与实例检查同时固定已授权的服务、实例及其主机映射；模型不能通过选择服务聚合检查，把未获授权的实例或主机带入计划。
 - 一次请求“巡检 web-01”默认只授予读取和报告权限。
 - 定时巡检和指定告警的只读任务使用管理员预先批准的 Routine / 触发模板；对象、动作和预算固定，不依赖模型推断是否接单。
 - 告警可以根据已启用规则触发取证；修复、开 PR、合并和部署需要分别获得相应动作范围。
-- 扩大环境、仓库、主机或动作范围必须形成新的授权记录，不能由模型自行改写原 Mandate。
+- 扩大环境、仓库、主机、服务、服务实例或动作范围必须形成新的授权记录，不能由模型自行改写原 Mandate。
 - 恢复旧工单、领取新任务和执行写操作时重新校验权限；正文、日志、网页、引用内容都不是授权来源。
 
 ### 4.3 主动任务模式
@@ -256,7 +261,7 @@ Assignment 的结构化 Report 可为 progress、waiting、ready、blocked 或 f
 - 巡检完成：预期检查均有结果，包括明确记录的 unknown / error，并且报告已生成。
 - 复现完成：保存可复核的步骤、目标源码版本和失败证据。
 - PR 已创建：表示可审查，不表示修复已验证或工单已完成。
-- 发布完成：灰度、全量和观察窗口通过，并记录实际运行的 digest。
+- 发布完成：批准的发布策略全部步骤及观察窗口通过，并记录各目标实例实际运行的 digest、配置和接流状态。
 - 通知发送状态单独记录，不把发送失败改写成业务动作失败。
 
 ### 4.5 停止、暂停与策略变更
@@ -314,14 +319,20 @@ UNIQUE(message_id)
 
 每个写执行器都必须实现 `reconcile`。尚未实现结果核对的动作不能开放自动执行。
 
+- 核对确认成功、失败或取消后，保存对应尝试的终态与已发生副作用；不把已确认失败长期留在 `unknown`。
+- `not_started` 必须有可靠依据；仅查不到结果不等于未执行，还须确认旧尝试不会随后开始。`running` 继续等待，`unknown` 保持核对或转人工，不直接重发写动作。
+- 只有确认无副作用或动作具备已验证的幂等重试能力，且当前授权、截止时间和预算仍有效时，才登记下一次尝试。失败或取消时存在部分/未知副作用，先核对已完成步骤，并按已授权范围补偿或交人工；不能通过把状态改回 queued 清除执行历史。
+
 ### 5.4 定时任务与事件风暴
 
 Routine 保存触发类型和授权模板。定时类型另保存时区、cron、下次触发时间和漏跑策略；告警类型保存已批准的来源与匹配范围。界面按 `Asia/Shanghai` 展示，持久化时间统一 UTC。
 
 - 调度器事务性登记 `routine_id + scheduled_for`，多个 worker 不会重复生成同一任务。
 - 默认同一 Routine 不重叠；重启后只补最近一次到期任务，更早漏跑记录为跳过。
-- 告警按环境、服务/主机、规则和 fingerprint 归并为事件上下文；重复 firing 更新已有事件，不反复建工单。
-- resolved 更新工单证据，不能仅凭一条 resolved 就认定修复成功。
+- 环境、服务/主机、规则和 fingerprint 用于关联同类告警上下文；一轮发生以 `source_id + fingerprint + starts_at` 唯一标识为 AlertOccurrence。`starts_at` 来自源事件 `startsAt`，状态及预计结束时间不参与本轮身份。
+- Trigger 保留不可变投递事实，AlertOccurrence 保存本轮状态及关联工单。重复 firing 只更新本轮观测；并发处理时，每轮最多建立一个主要工单。相同 fingerprint 的新 startsAt 表示新一轮，按当前 Routine / PolicyGate 重新判定是否接单，只关联历史工单，不自动重开旧工单或继承旧 Mandate。
+- resolved 只更新对应轮次及工单证据；旧轮次的迟到 resolved 不影响新轮次。若先收到 resolved，再收到同轮 firing，保存乱序记录，不自动退回 firing 或启动新工作；与来源当前状态冲突时核对来源，不能仅按接收时间覆盖状态。
+- 告警恢复与工单完成分别判定，不能仅凭一条 resolved 就认定修复成功。
 - 各来源有限流和积压告警；风暴时保持事件记录，合并评估和通知，优先已有生产故障。
 
 ## 6. 巡检架构与数据契约
@@ -372,7 +383,7 @@ hosts:
     environment: prod
     roles: [os, web]
     ssh: {port: 22, user: opsbot-ro}
-    check_sets: [os.base, web.http]
+    check_sets: [os.base]
     owner: team-shop
 ```
 
@@ -383,7 +394,9 @@ schema_version: 1
 services:
   shop-web:
     environment: prod
-    targets: [web-01]
+    instances:
+      shop-web-01: {host_id: web-01}
+    check_sets: [web.http]
     repository: team/shop-web
     base_branch: main
     health: {scheme: http, port: 8080, path: /healthz}
@@ -392,6 +405,8 @@ services:
 ```
 
 以上地址和服务为示例。inventory 是唯一事实源；数据库保存可查询投影和每次执行的配置快照。主机组、Ansible inventory、Prometheus file_sd 从它生成，不维护第二份手工清单。
+
+服务实例 ID 在环境内唯一，表示受管理的逻辑实例，不使用容器重建后变化的 container ID。服务的主机目标从 `instances` 展开；同机多个服务或实例分别登记，健康端口等实例差异通过经 schema 校验的实例配置覆盖服务默认值。Stage 1 可以只登记主机，首次纳管服务时再增加相应实例。
 
 地址、端口、主机 ID、仓库和服务关系必须通过 schema 和允许网段校验。停机维护有明确起止时间与原因，不能通过删掉 target 让报告变绿。
 
@@ -425,6 +440,18 @@ cooldown_seconds: 1800
 - 不适用的检查记录 skipped 和原因。采集失败记录 error，样本缺失或过期记录 unknown，不能转成数值 0。
 - cooldown 只抑制重复通知，不停止采集，也不隐藏严重程度升级或恢复事件。
 
+检查计划将定义展开成检查实例，最小契约为：
+
+```text
+check_instance_id, environment,
+target_ref(kind: host | service | service_instance, id),
+check_id, check_version, parameters, inventory_commit
+```
+
+`check_id` 标识可复用的检查定义；`check_instance_id` 根据环境、目标引用、check_id 与经校验的规范化参数生成稳定标识。参数可区分同机不同挂载点、端口或数据库实例；相同输入重复规划得到相同标识，不以时间、随机数或临时容器 ID 区分。检查版本和 inventory commit 随计划固定，重试不得改写原计划；目标或参数变化时建立新计划。
+
+按主机巡检展开主机自身及范围内已授权服务实例的检查；服务级聚合检查只有在全部必要目标均获授权时才纳入计划。执行地址、实例所属服务与主机从固定的 inventory 快照解析，不能使用模型传入的任意地址。结果、findings、取证 Job 和证据引用均关联同一个检查实例。
+
 ### 6.5 巡检结果
 
 ```json
@@ -449,16 +476,16 @@ cooldown_seconds: 1800
     "coverage": 0.6667
   },
   "results": [
-    {"host_id": "web-01", "check_id": "os.load", "status": "ok", "value": 0.4, "unit": "ratio"},
-    {"host_id": "web-01", "check_id": "disk.root", "status": "warn", "value": 84.2, "unit": "percent"},
-    {"host_id": "web-01", "check_id": "web.health", "status": "unknown", "value": null, "reason": "sample_missing"}
+    {"check_instance_id": "ci-example-load", "target_ref": {"kind": "host", "id": "web-01"}, "check_id": "os.load", "status": "ok", "value": 0.4, "unit": "ratio"},
+    {"check_instance_id": "ci-example-disk", "target_ref": {"kind": "host", "id": "web-01"}, "check_id": "disk.root", "status": "warn", "value": 84.2, "unit": "percent"},
+    {"check_instance_id": "ci-example-shop-health", "target_ref": {"kind": "service_instance", "id": "shop-web-01"}, "check_id": "web.health", "status": "unknown", "value": null, "reason": "sample_missing"}
   ]
 }
 ```
 
-该例表示执行结束，但检查覆盖不完整。每个预期主机/检查对必须对应一个结果，结果状态为 `ok | warn | crit | unknown | error | skipped`。
+该例表示执行结束，但检查覆盖不完整；其中检查实例 ID 为示意值。每个计划中的检查实例必须对应一个结果，唯一键为 `run_id + check_instance_id`，结果状态为 `ok | warn | crit | unknown | error | skipped`。同机两个服务的 `web.health` 或两个挂载点的同类检查分别计数，不能互相覆盖。
 
-完整结果还应包含检查版本、采集与查询时间、阈值命中、错误码和 evidence ID。coverage 分子只计有效观测；分母是展开后的应执行检查，预先批准的不适用项单独记录，不把临时采集失败排除。只有其应执行检查全部为 ok 的主机才能计入 hosts_ok。
+完整结果还应包含环境、检查版本、规范化参数、解析后的主机/服务关联、采集与查询时间、阈值命中、错误码和 evidence ID。coverage 分子只计有效观测；分母是计划中应执行的检查实例数，预先批准的不适用项单独记录，不把临时采集失败排除。只有主机自身及本次计划中归属该主机的服务实例检查全部为 ok，且至少有一项应执行检查时，才能计入 hosts_ok；服务级聚合结果单独展示，不重复计入各主机检查数。
 
 报告分开显示执行是否完成、健康情况和数据覆盖率。严重异常与采集故障都进入 findings，保留各自类型。
 
@@ -526,9 +553,11 @@ Stage 0 统一 `pnpm check` 并接入真实最小 CI。契约与本地检查通�
 
 - 构建 runner 没有生产 SSH 凭据和生产网段访问。来自 PR 的代码、Dockerfile、测试和依赖安装只能在这里运行。
 - 构建 runner 的 Docker 权限属于其隔离宿主，不能挂载管理节点或生产主机的 socket。
+- PR / 候选补丁构建与可信分支发布构建属于不同信任范围，不能共享可写 workspace、Docker daemon 或可被 PR 修改的缓存。可复用的公共缓存以只读方式提供，并验证内容摘要；可信构建从已验证的干净环境开始。
+- 能控制构建宿主 Docker 的 PR job 使用任务结束后可销毁的 VM 或等效隔离宿主；只清理工作目录、重建 job 容器不能证明宿主已恢复可信。可信发布池不直接复用执行过此类 PR job 的宿主；重新纳入前须重建整个受影响执行环境。具体隔离方式在 Stage 4 实测后记入 ADR。
 - 发布制品的凭据只在可信分支的受限发布步骤可用；不对任意 PR job 注入。
 - 部署 runner 不执行 PR 中的脚本，配方来自受保护的运维仓库，发布时固定配方 commit。
-- 生产凭据在策略验证后按本次环境和目标短期授予部署 runner。
+- 生产凭据在策略验证后按本次环境和目标短期授予第 8.5 节确定的受信部署执行入口，runner 不得另持绕过该入口的生产写通道。
 - runner 标签只是路由，不是权限控制。必须验证 Gitea/runner 是否真正限制仓库、工作流和凭据的使用；未满足时，部署改由独立受控服务触发。
 
 ### 8.3 合并前门禁
@@ -568,30 +597,37 @@ required_check_results, evidence_ids, created_at
 ### 8.5 发布状态机
 
 ```text
-planned → authorized → preflight → canary → observing_canary
-        → rolling_out → observing_full → succeeded
-任一步失败 → rollback_pending → rolling_back → rolled_back
+planned → authorized → preflight
+分批发布 / 临时扩容：canary → observing_canary → rolling_out → observing_full → succeeded
+维护窗口：entering_maintenance → replacing → verifying → leaving_maintenance
+        → observing_full → succeeded
+已发生变更且确认旧写步骤停止后，失败 → rollback_pending → rolling_back → rolled_back
 回滚失败或远端状态不明 → needs_attention
 ```
 
 - 同一 `service_id + environment` 只允许一个发布过程，锁覆盖灰度、全量、观察及回滚。
-- 发布使用单调递增的执行版本；受信 runner 在每个写步骤前验证当前版本和权限，旧执行器不能继续后续步骤。
-- 锁失联后，先核对旧部署是否仍运行，不直接启动另一个发布。
-- preflight 检查目标清单、上次成功 digest/配置、基线数据、制品可拉取、资源和回滚能力。
-- 初始按一台灰度，再分批全量；具体批次由服务配方决定。
-- 默认失败自动恢复上一已验证 digest 和配置快照，补偿权限在本次授权中预先限定。
+- 发布使用单调递增的执行代次。每个写步骤携带 deployment ID、代次、稳定 step ID 和授权范围，由目标端受信入口或唯一部署网关校验；runner 自己在发命令前查询一次版本不足以拦截过期执行。
+- 实际执行入口将代次校验、步骤登记与写操作互斥结合：旧代次不能启动新步骤，同一步骤不能并发执行，已有冲突操作未结束时不能放行新代次的写操作。选择网关实现时，由它独占生产写凭据并运行受信 Ansible；选择目标端实现时，所有发布写操作均须经过该入口。普通 SSH / Docker 调用不能绕过校验。具体机制与可验证的停止依据在 Stage 6 固定。
+- 锁失联后冻结新写操作，核对旧 runner、已建立连接和远端进程；短期凭据到期不等于已有会话终止。无法确认旧步骤完成或停止时保持 needs_attention，不能自动接管或同时启动回滚。安全接管后旧 runner 恢复，其旧代次请求仍须被拒绝。控制库恢复后先与执行入口对齐已接受的代次，不能回退或复用旧代次。
+- preflight 检查实例及主机清单、上次成功 digest/配置/流量状态、基线数据、制品可拉取、资源、最小健康实例数和回滚能力。确认未发生变更的 preflight 失败直接记录 failed，不执行无意义的回滚。
+- 具备冗余容量的服务初始按一个实例灰度，再分批全量；每批先摘流并确认排空，再替换、验证就绪和接流。流量调整也属于已授权发布动作，入口、目标和补偿范围都必须登记。
+- 单实例服务显式选择“临时扩容后灰度”或“批准的维护窗口内替换”。临时实例须预先纳入目标、权限和容量检查；无法维持最小健康实例数时不允许走分批发布路径，不能把替换唯一实例称为灰度。维护路径的停机窗口及恢复流量条件纳入审批。
+- 服务配方声明发布策略、流量入口与受信适配器、灰度实例/流量比例、摘流排空超时、最小健康实例数、观察规则和失败后的流量恢复方式；执行计划固定这些值并绑定审批。按服务只实现实际采用的策略。
+- 默认失败自动恢复上一已验证 digest、配置快照和流量状态，补偿权限在本次授权中预先限定；补偿同样经过执行代次与互斥校验。
 
 ### 8.6 健康判定
 
 | 指标 | 起始通过线 | 数据要求 |
 |---|---|---|
-| 健康接口 | 连续 10 次成功，响应语义符合服务定义 | 明确超时；不能只看 HTTP 200 |
-| HTTP 5xx | 小于 0.5% | 同一窗口有足够请求 |
-| P95 延迟 | 小于灰度前基线的 1.5 倍，且满足服务绝对 SLO | 默认参考前 30 分钟；无效基线不可比较 |
+| 健康接口 | 连续 10 次成功，响应语义符合服务定义 | 明确超时，并确认探针访问目标实例和版本；不能只看 HTTP 200 |
+| HTTP 5xx | 小于 0.5% | 新版本灰度实例在同一窗口有足够请求，不能用全服务请求量补足 |
+| P95 延迟 | 小于灰度前基线的 1.5 倍，且满足服务绝对 SLO | 使用灰度实例/版本的同口径数据；默认参考前 30 分钟的有效基线 |
 | 容器重启 | 观察窗口无非计划重启 | 实际容器版本与目标 digest 一致 |
 | 样本覆盖 | 必要信号齐全且新鲜 | Prometheus / exporter 失效不可判成功 |
 
-灰度默认观察 5 分钟，全量后观察 30 分钟。最小请求量和业务探针由服务声明；初始 HTTP 样本门槛可从 100 请求起验证。低流量、缺失样本和无效基线显示 unknown，延长到服务设定上限仍不足时交给人工，不自动判通过。
+实例 ID、实际 digest 与接流状态必须能关联到指标或访问日志。灰度统计按环境、服务、目标实例和已确认运行新版本的时间窗口筛选，排除同实例旧版本样本；既核对路由已将预期流量送入灰度，也保留全服务健康作为额外门禁。不能仅以旧版本占多数的服务总体 5xx / P95 判定灰度通过。全量阶段按实际目标集合核对版本与健康；维护路径先通过就绪与业务探针再恢复流量，随后观察实际新版本。
+
+灰度默认观察 5 分钟，全量后观察 30 分钟。最小请求量和业务探针由服务声明；初始 HTTP 样本门槛可从新版本灰度流量的 100 请求起验证。低流量、流量未进入目标版本、无法归属版本、缺失样本和无效基线显示 unknown，延长到服务设定上限仍不足时交给人工，不自动判通过。
 
 部署后检查属于发布阶段，不作为“合并前必须已部署成功”的循环前置条件。
 
@@ -599,7 +635,7 @@ planned → authorized → preflight → canary → observing_canary
 
 恢复运行版本与 `git revert` 是两个动作：
 
-1. 先恢复上一已验证镜像和配置，并确认服务恢复。
+1. 确认旧写步骤已停止后，恢复上一已验证镜像、配置和流量状态，并确认服务恢复。
 2. 暂停该服务的后续自动发布，保留失败制品和证据。
 3. 再根据当前主干状态准备 revert PR；并发提交或冲突交由人工处理。
 4. 回滚失败立即通知值班人员并保留发布锁的安全状态。
@@ -615,7 +651,7 @@ planned → authorized → preflight → canary → observing_canary
 | `opsbot-ro` | 读取执行器 | 通过 SSH Guard 和只读 API 采集 |
 | Gitea Bot 身份 | Gitea 适配服务 | 指定仓库的 Issue / 分支 / PR 动作；合并单独校验 |
 | 沙箱任务身份 | 隔离开发环境 | 指定 workspace 与测试依赖，无生产凭据 |
-| `opsbot-deploy` | 独立部署 runner | 已授权目标的受信发布与补偿 |
+| `opsbot-deploy` | 独立受信部署执行入口，按第 8.5 节选择 runner / 网关与目标端约束 | 已授权目标的受信发布与补偿，所有写步骤经过代次校验与互斥 |
 | 运维管理员 | 人工或受控配置流程 | 初始化账号、Guard、探针、权限和发布配方 |
 
 Bot、读取执行器和沙箱永远不持有 deploy 私钥。控制接口使用服务端身份认证和角色授权；Web 写请求具有 CSRF 防护，Webhook 使用独立来源认证。
@@ -638,7 +674,7 @@ Guard 严格解析允许的 operation 和参数，选择固定实现；不 `eval
 
 - 日常读取：TS collector 调用 SSH Guard，不借 Ansible 绕过限制。
 - 安装探针、初始化系统：人工/受控运维身份运行 Ansible。
-- 发布与回滚：部署 runner 使用独立身份运行受信 Ansible 配方，按该工作方式授予权限。
+- 发布与回滚：受信部署执行入口使用独立身份运行 Ansible 配方，按该工作方式授予权限，并落实第 8.5 节的代次校验与互斥；不能另开绕过执行入口的远程写通道。
 
 Ansible 并发限制适用于批量配置和发布；读取执行器单独维护自己的并发上限。
 
@@ -659,6 +695,7 @@ Ansible 并发限制适用于批量配置和发布；读取执行器单独维护
 action, ticket/mandate_id, policy_version, repository,
 base/head/merged_sha, image_digest, configuration_hash,
 deploy_recipe_commit, inventory_commit, target_ids,
+deployment_strategy, traffic_plan_hash, min_healthy_instances, observation_policy_hash,
 expected_previous_release, expires_at
 ```
 
@@ -694,7 +731,7 @@ subject(environment/service/host/repository), payload_ref
 |---|---|---|
 | Web / API | 登录会话或服务 token，按角色校验 | 请求 ID；显式 ticket ID 绑定后续请求 |
 | Gitea | 对原始请求体核验该版本支持的 Webhook 签名，校验仓库与事件范围 | delivery ID 去重，附对象 ID、事件动作、ref 和 SHA 形成业务标识 |
-| Alertmanager | 管理网入口，mTLS 或受控网关/Bearer 认证 | 每条 alert 按 fingerprint、状态与 startsAt 归并；resolved 记录结束时间 |
+| Alertmanager | 管理网入口，mTLS 或受控网关/Bearer 认证 | 每条 alert 按 source ID、fingerprint、startsAt 归入同一 occurrence；状态为观测值，乱序与复发按第 5.4 节处理 |
 | Routine | 内部调度身份及批准模板 | routine ID + 计划触发时间 |
 | 飞书 | 官方事件验签/校验机制，发送者允许列表 | event/message ID；原话题回报 |
 
@@ -715,18 +752,23 @@ Gitea push 首先记录版本和 CI 状态；CI 失败按规则触发候选工�
 | `runs`, `check_results`, `findings` | 巡检、全部观测、异常/采集故障 | Stage 1 本地文件；Stage 2 入库 |
 | `evidence`, `audit_events` | 证据索引、追加审计 | Stage 1 本地记录；Stage 2 入库 |
 | `config_snapshots` | 执行所依据的 Git 配置快照 | Stage 2 |
-| `hosts`, `services` | Git inventory 的查询投影 | Stage 3 |
+| `hosts`, `services`, `service_instances` | Git inventory 的查询投影 | Stage 3 |
+| `alert_occurrences` | 告警轮次、状态及主要工单关联；投递事实仍保存在 triggers | Stage 3 |
 | `releases` | CI 制品和来源证明 | Stage 4 |
 | `approvals` | 审查/审批的结构化记录 | Stage 5 评审；Stage 6 发布审批 |
 | `deployments`, `deployment_steps` | 发布与实际执行步骤 | Stage 6 |
 
 这是逻辑表组，具体 migration 随切片落地，不提前创建全部空表。各状态有单一写入入口；报表和 Source 查询不能直接改变工单生命周期。
 
-巡检结果唯一键为 `run_id + host_id + check_id`。审计记录动作 ID、身份、授权依据、参数摘要、目标版本、时间和结果；应用身份仅追加写，维护与清理使用独立权限。
+巡检结果唯一键为 `run_id + check_instance_id`，检查实例身份按第 6.4 节生成；主机/服务/实例字段用于关联查询，不替代结果身份。`alert_occurrences` 使用 `UNIQUE(source_id, fingerprint, starts_at)`；接单事务锁定本轮记录，原子登记主要工单关联，重复投递不能再建一个工单。
+
+审计记录动作 ID、身份、授权依据、参数摘要、目标版本、时间和结果；应用身份仅追加写，维护与清理使用独立权限。
 
 ### 10.4 证据契约
 
 证据索引包含 `id, ticket/run/job_id, kind, uri, sha256, size, media_type, created_at, expires_at, redaction_status`。
+
+巡检证据另关联 `run_id + check_instance_id`；一份证据可被多个检查实例引用，但不能仅凭 host_id / check_id 猜测归属。
 
 - 先上传对象并计算摘要，再登记引用；对象未完成上传不能成为可用证据。
 - 孤立对象由定时清理处理；引用存在但对象缺失时明确显示不可用。
@@ -878,7 +920,7 @@ RPO / RTO 是目标，只有演练结果能够证明。G2 包含控制库恢复�
 | 3：集群观测与告警 | 指标、异常取证、告警、报告、自监控 | G1；事件接入完成后串联 G2 | G3a：20 台；G3b：50 台；G3c：100 台 | 按批次批准的只读资产 |
 | 4：隔离复现与镜像验证 | 对一个真实应用复现故障，验证补丁和镜像 | G2、可用 CI、一个测试应用及隔离执行环境 | G4 | 测试 workspace 写入，无生产写权限 |
 | 5：PR 与人审修复 | Bot 发布可复核的 PR，接收评审并更新 | G4、Gitea 写适配与保护分支准备好 | G5 | 指定仓库分支/PR 写入，人工合并 |
-| 6：人工批准的发布与回滚 | 人工选择可信版本，系统完成灰度、全量与补偿 | G3a 的服务信号、G4 的制品链路、一个可发布服务 | G6a：测试环境；G6b：生产样板服务 | 每次计划经人工批准的生产写操作 |
+| 6：人工批准的发布与回滚 | 人工选择可信版本，系统按批准策略完成发布、观察与补偿 | G3a 的服务信号、G4 的制品链路、一个可发布服务 | G6a：测试环境；G6b：生产样板服务 | 每次计划经人工批准的生产写操作 |
 | 7：有限自动化 | 按白名单自动接单、建 PR、合并或发布 | 对应动作的前置 Gate，见第 13.9 节 | G7，按动作与服务分别验收 | 指定服务、动作、环境的自动授权 |
 | 8：按需求扩展 | 更多检查包、趋势、周报、协作或 Harbor | 对应基础能力稳定，存在可验证的需求 | 各扩展的独立验收 | 不因进入阶段而自动增加权限 |
 
@@ -914,11 +956,13 @@ flowchart LR
 
 1. 记录现有环境：管理节点、Gitea/runner、SSH 接入、网络、测试应用、镜像库与备份是否可用，以及缺口负责人。
 2. 选定一个样板机和一个样板应用，确认主机 owner、测试范围、源码仓库、启动方式和健康定义。
-3. 建立最小 TypeScript / pnpm 工程、共享配置与结果 schema、错误码和 `pnpm check`。
+3. 建立最小 TypeScript / pnpm 工程、共享配置与结果 schema、错误码和 `pnpm check`；先固定目标引用、检查实例身份、计划展开及结果计数契约。
 4. 接入 Gitea 的最小 CI：配置校验、类型检查、必要测试、构建；运行记录绑定实际 SHA。
 5. 明确首批执行身份和网络边界；只为即将实施的能力准备凭据。
 
 **G0a：** 干净检出可运行 `pnpm check`；合法/非法配置有可预期结果；样板对象、环境缺口和责任人已登记。
+
+检查契约至少用固定样例验证：同机两个服务使用同一 check_id、同机两个资源使用不同参数时结果身份不冲突；相同输入重复规划得到相同检查实例 ID；结果缺失仍保留应执行项并降低覆盖率，重复结果不能增加计数，未授权实例不能进入计划。此处验证 schema 和纯规划逻辑，不要求 Stage 0 已接入真实服务。
 
 **G0b：** 一次真实 CI 在指定 SHA 上完成；失败检查能阻止该版本被判为通过；runner 与凭据访问范围经过验证。
 
@@ -932,7 +976,7 @@ G0 表示 G0a 与 G0b 均通过。CLI 与采集器开发在 G0a 通过后可以�
 
 1. 一台授权样板机、只读 SSH Guard、三个有明确成功/异常定义的检查项。
 2. `pnpm ops validate`、`pnpm ops inspect --host ... --format json|markdown`。
-3. 检查计划、inventory/check 版本、全部检查结果、错误码、本地证据与报告。
+3. 按检查实例登记的计划、inventory/check 版本、全部检查结果、错误码、本地证据与报告；检查到证据的引用保留实例身份。
 4. 最小只读安装/升级说明与权限记录；安装 Guard 使用人工运维身份。
 
 **G1：** 实际样板机的三个检查连续三次产生符合契约的结果；模拟超时、权限不足和异常值时分别保留真实状态与证据；结果不丢项，报告计数正确。关闭模型/API/控制库仍可运行 CLI。
@@ -951,11 +995,14 @@ G0 表示 G0a 与 G0b 均通过。CLI 与采集器开发在 G0a 通过后可以�
 4. 报告/工单查询、授权和运行记录；控制库每日备份及一次恢复记录。
 5. 模型不可用时的确定性报告和人工重试入口。
 
+在本阶段固定 ExecutorPort / ActionResult 契约，包含已确认失败、已确认取消、已发生副作用和独立重试判定；后续写执行器复用相同语义。
+
 **G2：**
 
 - 明确请求“巡检样板机”能够生成工单、执行、保存结果并返回报告；一次 Routine 产生同样的业务结果。
 - 同一事件重复投递十次仍只创建一个工单与对应 Job；两个 worker 不能同时成功领取同一租约。失联后的只读任务可重新采集，但每次尝试均登记，不伪称远端执行 exactly-once。
 - 在领取后、采集后、结果保存前分别重启 worker，能恢复或记录 unknown，旧尝试不能覆盖新结果。
+- 使用受控假执行器验证“回执丢失后核对为失败/取消”能收敛到对应终态；存在部分或未知副作用时不能直接重发。只触发本地取消或查不到远端结果时，不能伪称已取消或未开始。这些契约测试不开放真实生产写权限。
 - 数据库写入失败不执行尚未登记的动作；模型失败不使只读检查链失效。
 - 无权限用户、越界主机、伪造授权和日志注入不能增加动作范围。
 - 恢复备份后冻结不确定的历史外部写任务，核对或转人工处理；不能核对的渠道保留投递不确定性，不能保证已发送消息绝不重复。
@@ -971,18 +1018,20 @@ G0 表示 G0a 与 G0b 均通过。CLI 与采集器开发在 G0a 通过后可以�
 1. 完整 inventory 校验与责任归属、生成的 Prometheus file_sd、指标与 SSH Guard 两条读取路径。
 2. 官方 exporters、黑盒健康探针、告警规则、Alertmanager 认证接入和外部 watchdog。
 3. 按优先级形成检查覆盖清单：主机基础、Web 健康、数据库/中间件关键状态、备份新鲜度；关键角色缺口明确登记。
-4. 目标对齐、样本过期识别、异常取证、告警工单归并、恢复事件和通知抑制；固定只读告警模板经管理员批准后自动运行，模板之外的新自主候选仍 observe。
+4. 主机/服务实例目标对齐、样本过期识别、异常取证、AlertOccurrence 与工单关联、复发/乱序处理和通知抑制；固定只读告警模板经管理员批准后自动运行，模板之外的新自主候选仍 observe。
 5. 单机/集群报告、采集与任务队列自监控、证据对象存储和保留/清理机制。
 
 扩容不是一次从 20 台跳到 100 台：
 
 | Gate | 范围 | 必须通过的条件 |
 |---|---|---|
-| G3a | 20 台试点，包含实际存在的关键角色 | 正常场景预期检查均有有效观测；关闭 exporter、移除 target、断开读取权限时报告准确反映故障；采集链路自监控和外部 watchdog 生效 |
-| G3b | 50 台，MVP 集群范围 | 正常网络条件下连续三次巡检均在 5 分钟内完成且覆盖率 100%；重复 firing 不重复建工单；采集缺失/告警风暴/通知失败有可复核记录 |
+| G3a | 20 台试点，包含实际存在的关键角色 | 正常场景预期检查均有有效观测；关闭 exporter、移除 target、断开读取权限时报告准确反映故障；采集链路自监控和外部 watchdog 生效；真实 Alertmanager 格式的重复、复发与乱序用例通过 |
+| G3b | 50 台，MVP 集群范围 | 正常网络条件下连续三次巡检均在 5 分钟内完成且覆盖率 100%；并发重复 firing 不重复建工单，告警轮次和工单可追踪；采集缺失/告警风暴/通知失败有可复核记录 |
 | G3c | 全部约 100 台 | 所有纳管主机有 owner、角色和明确检查范围；关键角色没有未说明的覆盖缺口；实测容量、并发、保留策略、周期 SLO 和故障处置满足声明 |
 
 若实际待纳管数量不足 50 台，G3b 使用全部现有主机并明确实际范围；性能补充测试不冒充真实覆盖。正常场景采样覆盖与故障注入后的状态正确性分别验收，不能为达到覆盖率删除故障目标。
+
+告警验收覆盖：同轮重复及并发 firing 只关联一个主要工单；恢复后新 startsAt 按当前授权建立新轮次；旧轮 resolved 晚到不影响新轮；resolved 先于同轮 firing 到达时不倒退状态或重新执行任务。保留来源事件、occurrence 和工单 ID，不能只比较最终通知条数。
 
 每个扩容 Gate 都保留连续七天的运行记录，并评估新增批次的资源增长、告警噪声和失败原因。时间窗口提供观察证据，不代替前述具体检查。未通过时停在当前批次，回退探针/配置即可，不影响已有只读能力。
 
@@ -992,13 +1041,15 @@ G0 表示 G0a 与 G0b 均通过。CLI 与采集器开发在 G0a 通过后可以�
 
 交付：
 
-1. 独立沙箱与构建环境，固定 workspace / 源码 SHA / 测试配方和资源预算。
+1. 独立沙箱与构建环境，固定 workspace / 源码 SHA / 测试配方和资源预算；PR / 候选补丁与可信发布构建的执行宿主、Docker daemon 和可写缓存边界按第 8.2 节验证。
 2. 测试依赖、数据与凭据；生产网络和生产凭据不可达的验证记录。
 3. 一个真实 bug 的复现步骤，以及该应用关键路径的 Playwright 回归清单。
 4. 修复前失败、修复后通过的证据；证据授权访问、摘要、脱敏与归档。
 5. CI 构建镜像、Compose 测试栈、相同关键用例、commit → digest 的 Release Manifest。
 
 **G4：** 相同源码版本可再次复现；补丁后目标用例及声明的关键回归通过；CI 验证的镜像与 Manifest 一致；沙箱超时/执行宿主重启能保留状态或给出明确失败；从沙箱和 PR 构建环境无法取得生产凭据或访问生产接口。
+
+另做跨构建任务隔离验收：在候选补丁任务中留下受控后台进程、workspace / 缓存标记及 Docker 状态，验证后续可信构建无法被这些残留影响，候选任务不能访问发布凭据；任务失败或宿主重启后的环境也必须按同样边界处置。保留环境重建和实际隔离记录，不能只以“凭据未注入 PR job”作为通过依据。Stage 4 可直接使用候选提交触发测试，不依赖 Stage 5 已能发布 PR。
 
 不能复现的 bug 标记为未确认，不能作为通过案例。测试数量按应用关键路径确定，不以凑齐固定十条用例作为质量标准。
 
@@ -1026,20 +1077,26 @@ G4 的修复验证可以使用人工提供的已知补丁，目的是证明沙�
 
 **目标：** 先证明发布执行器可靠，减少自动化同时引入多个未经验证的环节。
 
-进入前必须具备：一个已经 Docker 化的样板服务、声明的健康/业务信号、上一成功版本与配置、可恢复备份、受信部署配方、独立部署 runner 和短期生产凭据。未具备的服务先补迁移与发布条件，不把整个集群迁移设为前置。
+进入前必须具备：一个已经 Docker 化的样板服务、可归属实例/版本的健康与业务信号、明确的流量入口和实例拓扑、上一成功版本与配置、可恢复备份、受信部署配方、独立部署执行入口和短期生产凭据。单实例服务须选定临时扩容或维护窗口策略。未具备的服务先补迁移与发布条件，不把整个集群迁移设为前置。
 
 交付：
 
-1. 人工选择可信 Manifest，查看并批准包含版本、目标、基线和回滚计划的具体部署。
-2. 先以 dry-run 验证目标与权限，再执行 preflight、灰度、分批全量、观察和回滚状态机。
-3. 服务/环境发布锁、执行版本、防止过期 runner 继续写、远端状态核对。
-4. 逐机实际 digest/配置、部署步骤、健康证据、故障和补偿记录。
+1. 人工选择可信 Manifest，查看并批准包含版本、实例/主机目标、发布策略、流量计划、最小健康实例数、观察规则和回滚计划的具体部署。
+2. 先以 dry-run 验证目标与权限，再执行 preflight；按批准的策略完成灰度/分批发布或维护替换，以及观察和回滚状态机。
+3. 服务/环境发布锁、实际写入口的执行代次校验与互斥、过期 runner 拦截、远端状态核对及安全接管依据。
+4. 逐实例/主机实际 digest/配置、流量状态、部署步骤、按版本归属的健康证据、故障和补偿记录。
 5. 人工接管流程、失败通知、暂停后续发布、控制库 PITR 和服务恢复演练。
 
 | Gate | 环境 | 验收 |
 |---|---|---|
-| G6a | 测试环境 | 正常发布通过；坏镜像、健康失败、缺失指标、凭据失效、并发发布、runner 失联分别得到预期结果；回滚同时恢复镜像和配置；回滚失败进入人工处理 |
-| G6b | 一个生产样板服务，每次人工批准 | 一个真实版本完成发布与观察；一次批准的回滚演练通过；审批绑定对象变化失效；记录能回答“哪台机器实际运行哪个版本”；备份恢复与人工接管已验收 |
+| G6a | 测试环境 | 正常发布通过；坏镜像、健康失败、缺失指标、凭据失效、并发发布、runner 失联及下述专项用例得到预期结果；回滚同时恢复镜像、配置与流量状态；回滚失败进入人工处理 |
+| G6b | 一个生产样板服务，每次人工批准 | 一个真实版本按批准策略完成发布与观察；一次批准的回滚演练通过；目标、流量或观察计划变化使旧审批失效；记录能回答“哪个实例实际运行哪个版本、是否承接流量”；备份恢复与人工接管已验收 |
+
+G6a 的专项用例：
+
+- runner 在版本校验后暂停，随后租约失联并尝试接管；不能确认旧写步骤停止时接管与回滚均被冻结。完成安全接管后让旧 runner 恢复，其旧代次写请求被实际执行入口拒绝；恢复控制库也不能复用执行入口已经接受的旧代次。
+- 服务总体指标正常但灰度实例异常时不能判通过；流量未进入新版本、样本无法归属版本或夹带旧版本样本时返回 unknown；摘流/排空超时、低于最小健康实例数时停止后续批次。
+- 样板服务只有一个实例时，直接套用分批灰度被拒绝；选择维护或临时扩容后，按该服务实际采用的策略验证容量、停机/接流条件及补偿。没有实现的策略不能标为已支持。
 
 生产验证使用批准的窗口与计划，不把故障注入测试直接搬到全部生产机器。仅开通这个样板服务的人工批准发布权限。无模型参与的人工版本也可以走同一通道。
 
@@ -1090,13 +1147,17 @@ Stage 8 是独立需求清单，不是把遗漏工作放到最后的兜底阶段
 
 | 决策 | 默认方向 | 最迟确认 |
 |---|---|---|
+| 检查目标、实例身份与计数契约 | target_ref + 稳定 check_instance_id；相同定义可用于多个实例 | Stage 0 的 G0a |
+| 执行结果核对与重试判定 | 明确失败/取消及副作用，核对事实与重试决策分开 | Stage 2 的 G2 |
+| 告警轮次、复发与乱序 | source + fingerprint + startsAt 标识本轮，不沿用旧工单授权 | Stage 3 的 G3a |
 | 模型 Provider、工具循环可抽取范围 | 自研 adapter，逐项核对来源 | Stage 2 |
 | Web 身份接入、环境权限映射 | 服务端认证，复用现有 SSO 可另接 | Stage 2 |
 | Gitea 版本、检查状态与基础 runner 隔离 | 推荐 Actions / act_runner，以实际 SHA 验证 | Stage 0 的 G0b |
 | Gitea 评审事件、合并条件与写入口隔离 | Stage 5 人审；自动合并队列与提交条件独立验证 | Stage 5；自动动作在 Stage 7 前验证 |
 | 镜像来源证明与 registry 访问方式 | Packages + digest；可信 CI manifest | Stage 4 |
-| 沙箱/构建宿主隔离 | 独立执行宿主，无生产访问 | Stage 4 |
-| 各服务灰度信号、批次、回滚配置和迁移限制 | 单机灰度、声明式配方、人工先验收 | Stage 6 |
+| 沙箱/构建宿主及跨任务隔离 | 独立执行宿主；PR 与可信构建隔离可写状态，受影响环境整体重建 | Stage 4 |
+| 部署执行代次与安全接管 | 目标端入口或独占凭据的部署网关；旧写未确认停止时冻结 | Stage 6 的 G6a |
+| 各服务拓扑、流量与灰度信号、回滚配置和迁移限制 | 按实例/版本判定；单实例选择临时扩容或维护窗口；人工先验收 | Stage 6 |
 | SSH CA / 短期部署凭据 | 凭据接口先保留，生产写开放前采用短期授权 | Stage 6 |
 | 同角色偏离、多角色 Agent 协作、Harbor | 基于实际需求与指标评估 | Stage 8 |
 
