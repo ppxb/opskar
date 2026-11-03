@@ -12,6 +12,8 @@ type WorkspaceFrameProps = ParentProps<
   {
     /** Whether the sidebar is drawn compact. The web keeps it wide on a phone, where it is a full pane. */
     compact: boolean;
+    /** A single local workspace has no server rail, regardless of a saved remote layout. */
+    serverRailVisible?: boolean | undefined;
     /** Set while the remote-desktop workspace covers the frame. */
     hidden?: boolean;
     /** A remote server this build cannot talk to. Its screen replaces the middle panes. */
@@ -45,6 +47,7 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
   const rest = omit(
     props,
     "compact",
+    "serverRailVisible",
     "hidden",
     "blockedServer",
     "onRetryServer",
@@ -71,7 +74,7 @@ export function WorkspaceFrame(props: WorkspaceFrameProps) {
         {
           "app-frame-sidebar-compact": props.compact,
           "app-frame-edge": platform.appInfo() !== null,
-          "app-frame-with-server-rail": layout.serverRailVisible(),
+          "app-frame-with-server-rail": props.serverRailVisible ?? layout.serverRailVisible(),
           "app-frame-page-open": pageOpen(),
           "app-frame-sidebar-hidden": props.sidebarHidden === true,
           "app-frame-platform-darwin": platform.appInfo()?.platform === "darwin",

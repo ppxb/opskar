@@ -70,8 +70,11 @@ export interface ChatMessageRowProps {
   "data-chat-search-message"?: string | undefined;
   onSelectAgent: (agentId: string) => void;
   onOpenLink: (url: string) => void;
-  onPreview: (attachment: AttachmentSummary) => void;
-  onAttachmentAction: (attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void;
+  onPreview?: ((attachment: AttachmentSummary) => void) | undefined;
+  onAttachmentAction?: ((attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void) | undefined;
+  /** A local history reader does not fetch images from message URLs. */
+  imagesAsLinks?: boolean | undefined;
+  linkFavicons?: boolean | undefined;
   onOpenSharedFile?: (path: string) => void;
   onOpenWorkspaceFile?: ((path: string) => void) | undefined;
   onOpenQuote?: ((messageId: string, text: string) => void) | undefined;
@@ -179,6 +182,8 @@ export function ChatMessageRow(props: ChatMessageRowProps): JSX.Element {
       onOpenLink={props.onOpenLink}
       onPreview={props.onPreview}
       onAttachmentAction={props.onAttachmentAction}
+      imagesAsLinks={props.imagesAsLinks}
+      linkFavicons={props.linkFavicons}
       onOpenSharedFile={props.onOpenSharedFile}
       onOpenWorkspaceFile={props.onOpenWorkspaceFile}
       onOpenQuote={props.onOpenQuote}

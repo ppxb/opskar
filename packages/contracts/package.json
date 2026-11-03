@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./server-console": "./src/server-console.ts",
+    "./server-workspace": "./src/server-workspace.ts",
     "./live-activity-relay": "./src/live-activity-relay.ts",
     "./notification-relay": "./src/notification-relay.ts",
     "./agent-mention-rank": "./src/agent-mention-rank.ts",

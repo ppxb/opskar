@@ -80,6 +80,10 @@
   },
   "scripts": {
     "server:dev": "node --import tsx src/server/index.ts",
+    "server:web": "node --import tsx src/server/index.ts --web",
+    "test:server-web": "node --import tsx scripts/server-web-e2e.ts",
+    "test:server-workspace": "node --import tsx scripts/server-workspace-e2e.ts",
+    "typecheck:server-web": "bun scripts/type-checker.ts --noEmit -p tsconfig.server-web.json",
     "test:server-bootstrap": "node --import tsx scripts/server-bootstrap-e2e.ts",
     "test:server-storage": "node --import tsx scripts/server-storage-e2e.ts",
     "test:server-credentials": "node --import tsx scripts/server-credentials-e2e.ts",

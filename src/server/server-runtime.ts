@@ -3,6 +3,7 @@ import { Context, Effect, Layer } from "effect";
 import { ServerCredentials } from "./server-credentials";
 import { type ServerOptions, ServerStartupFailed } from "./server-options";
 import { ServerStorage } from "./server-storage";
+import { acquireWebConsole } from "./server-web";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -29,7 +30,7 @@ function closeListener(server: Server): Promise<void> {
   });
 }
 
-/** Storage bootstrap only. Agent, provider, scheduler and account services are not started. */
+/** Storage and optional local Provider console. Agent and scheduler services are not started. */
 export class ServerRuntime extends Context.Service<
   ServerRuntime,
   { port: number; schemaVersion: number; credentialStorage: "ready" | "unconfigured" }
@@ -40,10 +41,15 @@ export class ServerRuntime extends Context.Service<
       Effect.gen(function* () {
         const { schemaVersion } = yield* ServerStorage;
         const { status: credentialStorage } = yield* ServerCredentials;
+        const web = options.web ? yield* acquireWebConsole(options) : null;
         const server = yield* Effect.acquireRelease(
           Effect.sync(() =>
             createServer((request, response) => {
               const ready = request.method === "GET" && request.url === "/health/ready";
+              if (web && !ready) {
+                web.handle(request, response);
+                return;
+              }
               response.writeHead(ready ? 200 : 404, {
                 "Content-Type": "application/json",
                 "Cache-Control": "no-store",

@@ -18,7 +18,7 @@ import { createSidebarLayoutActions } from "./stores/layout-actions";
 import { createSidebarPendingStore } from "./stores/pending-store";
 
 export function createSidebarScope(props: SidebarProps) {
-  const layoutMutable = () => props.layoutMutable !== false;
+  const layoutMutable = () => props.layoutMutable !== false && props.onMutateLayout !== undefined;
   const scrollFades = createScrollFades();
 
   const { announce, announceError, reorderAnnouncement } = createSidebarAnnouncementStore();

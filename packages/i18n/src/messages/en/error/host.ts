@@ -1,6 +1,10 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("error.host", {
+  "error.host.localWorkspaceAgentMissing": "This agent is not in the local workspace.",
+  "error.host.localWorkspaceInput":
+    "The workspace request or history cursor is invalid. Reload the workspace and try again.",
+  "error.host.localWorkspaceRead": "The server could not read the local workspace. Saved data is unchanged.",
   // Errors from host setup, publishing, and host maintenance.
   "error.host.iceServersMissing": "Remote Signal has not supplied ICE servers.",
   "error.host.keyRotationUnavailable": "This server cannot change its key without the account service.",

@@ -1,0 +1,107 @@
+@import "@openbot/brand/tokens.css";
+@import "@openbot/brand/tokens-light.css";
+@import "@openbot/ui/styles.css";
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--openbot-bg-canvas);
+  color: var(--openbot-text-primary);
+  font-family: var(--openbot-font-sans);
+}
+
+.server-console {
+  display: grid;
+  gap: var(--openbot-space-6);
+  width: min(100%, 1120px);
+  margin: 0 auto;
+  padding: var(--openbot-space-8);
+}
+
+.server-console-header,
+.server-console-actions,
+.server-console-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--openbot-space-3);
+}
+
+.server-console-header {
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: var(--openbot-space-4) 0;
+}
+
+.server-console-intro {
+  display: grid;
+  gap: var(--openbot-space-2);
+}
+
+.server-console-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--openbot-space-6);
+}
+
+.server-console-card {
+  display: grid;
+  gap: var(--openbot-space-4);
+  min-width: 0;
+  padding: var(--openbot-space-6);
+  border: 1px solid var(--openbot-border-strong);
+  border-radius: var(--openbot-radius-card);
+  background: var(--openbot-bg-surface);
+}
+
+.server-console-login {
+  width: min(100%, 480px);
+}
+
+.server-console-form {
+  display: grid;
+  gap: var(--openbot-space-6);
+  padding-top: var(--openbot-space-2);
+}
+
+.server-console-form .ui-input {
+  width: 100%;
+}
+
+.server-console-actions {
+  flex-wrap: wrap;
+}
+
+.server-console-checkbox {
+  cursor: pointer;
+}
+
+.server-console-result {
+  display: grid;
+  gap: var(--openbot-space-3);
+  padding: var(--openbot-space-4);
+  border-radius: var(--openbot-radius-md);
+  background: var(--openbot-bg-sheet-inset);
+}
+
+.server-console-response {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .server-console {
+    padding: var(--openbot-space-4);
+  }
+
+  .server-console-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .server-console-header {
+    flex-wrap: wrap;
+  }
+}

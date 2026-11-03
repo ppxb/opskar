@@ -77,7 +77,7 @@ export function SidebarNav() {
       </div>
       <Show
         when={
-          props.createSupported !== false ||
+          (props.createSupported !== false && props.onCreateAgent) ||
           props.onCreateChannel ||
           layoutMutable() ||
           props.onMarkAllRead ||
@@ -88,8 +88,8 @@ export function SidebarNav() {
           <ContextMenu.Trigger class="sidebar-list-context-trigger" aria-label={t("sidebar.nav.freeArea")} />
           <ContextMenu.Portal>
             <ContextMenu.Content class="agent-context-menu" aria-label={t("sidebar.nav.actions")}>
-              <Show when={props.createSupported !== false}>
-                <ContextMenu.Item onSelect={() => props.onCreateAgent()}>
+              <Show when={props.createSupported !== false && props.onCreateAgent}>
+                <ContextMenu.Item onSelect={() => props.onCreateAgent?.()}>
                   <Bot class="agent-context-icon size-4" aria-hidden="true" />
                   <span>{t("sidebar.new.agent")}</span>
                 </ContextMenu.Item>

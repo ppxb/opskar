@@ -15,7 +15,9 @@ export function Sidebar(props: SidebarProps) {
       <SidebarFrame compact={props.compact}>
         <SidebarTopbar />
 
-        <SidebarSearch />
+        <Show when={props.onOpenSearch}>
+          <SidebarSearch />
+        </Show>
 
         <Show when={props.onViewChange && !props.compact}>
           <SidebarViewSwitch />

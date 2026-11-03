@@ -73,7 +73,7 @@ export function SidebarPeopleSection(sectionProps: { sectionId: string }) {
                       onClick={(event: MouseEvent) => {
                         if (sidebarClickIsSuppressed(event)) return;
                         props.onPreloadDirectConversation?.();
-                        props.onSelectPerson(member.id);
+                        props.onSelectPerson?.(member.id);
                       }}
                       onKeyDown={(event: KeyboardEvent) => {
                         if (!event.altKey) return;

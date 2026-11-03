@@ -22,15 +22,17 @@ export function SidebarChannelContextMenu(menuProps: { channel: ChannelSummary; 
             <span>{t("sidebar.new.channel")}</span>
           </ContextMenu.Item>
         </Show>
-        <ContextMenu.Item
-          data-cuelume-tap="toggle"
-          onSelect={() => (menuProps.pinned ? props.onUnpin(ref()) : props.onPin(ref()))}
-        >
-          <Show when={menuProps.pinned} fallback={<Pin class="agent-context-icon size-4" aria-hidden="true" />}>
-            <PinOff class="agent-context-icon size-4" aria-hidden="true" />
-          </Show>
-          <span>{menuProps.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</span>
-        </ContextMenu.Item>
+        <Show when={menuProps.pinned ? props.onUnpin : props.onPin}>
+          <ContextMenu.Item
+            data-cuelume-tap="toggle"
+            onSelect={() => (menuProps.pinned ? props.onUnpin?.(ref()) : props.onPin?.(ref()))}
+          >
+            <Show when={menuProps.pinned} fallback={<Pin class="agent-context-icon size-4" aria-hidden="true" />}>
+              <PinOff class="agent-context-icon size-4" aria-hidden="true" />
+            </Show>
+            <span>{menuProps.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</span>
+          </ContextMenu.Item>
+        </Show>
         <SidebarMoveToSubmenu chatId={menuProps.channel.id} />
         <ContextMenu.Item onSelect={() => props.onEditChannel?.(menuProps.channel.id)}>
           <EditIcon />

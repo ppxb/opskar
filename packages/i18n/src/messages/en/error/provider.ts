@@ -1,6 +1,23 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("error.provider", {
+  "error.provider.consoleUnauthorized": "Sign in to the local console. Check the password if sign-in fails.",
+  "error.provider.consoleForbidden": "This request is not from the local console.",
+  "error.provider.consoleInvalid":
+    "Check the request fields. Use HTTPS, or HTTP with a local or private IP address. Do not put credentials or query parameters in the URL.",
+  "error.provider.consoleTooLarge": "The request is too large.",
+  "error.provider.consoleRateLimit":
+    "Too many sign-in attempts or sessions. Wait one minute, or sign out of another session.",
+  "error.provider.consoleKeyRequired": "Enter the API key again for the new Provider address.",
+  "error.provider.consoleUnconfigured": "The server needs an encryption key file before it can save Provider settings.",
+  "error.provider.consoleNotSaved": "Save the Provider settings before you run a test.",
+  "error.provider.consoleBusy": "A Provider test is still running. Cancel it or wait for its result.",
+  "error.provider.consoleTimeout": "The Provider did not complete the test within 20 seconds.",
+  "error.provider.consoleResponse": "The Provider returned an empty or invalid chat response.",
+  "error.provider.consoleProvider":
+    "The Provider request failed. Check the address, model, API key and network access.",
+  "error.provider.consoleStorage":
+    "The server could not save the Provider settings. The previous settings are unchanged.",
   // Provider, provider runtime and custom endpoint errors.
   "error.provider.mcpConfig":
     "OpenBot could not register MCP servers in the Codex configuration. Check that your Codex config.toml is valid and writable, then restart OpenBot.",

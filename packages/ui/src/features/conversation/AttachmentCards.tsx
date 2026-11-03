@@ -25,8 +25,8 @@ export function AttachmentCards(props: {
   attachments: AttachmentSummary[];
   mediaSource?: AttachmentMediaSource | undefined;
   /** `origin` is the clicked card, for a viewer that zooms out of it. */
-  onPreview: (attachment: AttachmentSummary, origin: HTMLElement) => void;
-  onAction: (attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void;
+  onPreview?: ((attachment: AttachmentSummary, origin: HTMLElement) => void) | undefined;
+  onAction?: ((attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void) | undefined;
 }) {
   const { t, format } = useText();
   // An image whose preview does not load was deleted from the host, or never arrived. The card
@@ -80,54 +80,73 @@ export function AttachmentCards(props: {
               data-media={mediaKind(attachment) ?? undefined}
               data-status={isMissing(attachment) ? "missing" : undefined}
             >
-              <Button
-                variant="ghost"
-                type="button"
-                class="attachment-preview-button"
-                disabled={isMissing(attachment) || !canPreviewAttachment(attachment)}
-                aria-label={t("attachment.preview", { name: attachment.name })}
-                data-attachment-id={attachment.id}
-                data-cuelume-tap="open"
-                onClick={(event) => props.onPreview(attachment, event.currentTarget)}
-              >
-                <Show
-                  when={attachment.previewKind === "image" && imageUrl(attachment) && !isMissing(attachment)}
-                  fallback={
+              <Show
+                when={props.onPreview || props.onAction}
+                fallback={
+                  <span class="attachment-preview-button">
                     <span
                       class="attachment-file-visual"
                       data-file-tone={attachmentReferenceTone(attachment.name)}
                       aria-hidden="true"
                     >
-                      <Show when={mediaKind(attachment)} fallback={<AttachmentFileIcon />}>
-                        <Show when={mediaKind(attachment) === "audio"} fallback={<Film />}>
-                          <AudioLines />
-                        </Show>
-                      </Show>
+                      <AttachmentFileIcon />
                     </span>
-                  }
-                >
-                  <span
-                    class="attachment-file-visual attachment-file-image"
-                    data-file-tone={attachmentReferenceTone(attachment.name)}
-                  >
-                    <img
-                      src={imageUrl(attachment) ?? ""}
-                      alt=""
-                      loading="lazy"
-                      decoding="async"
-                      // A loaded copy exists, so its error does not mean that the host lost the file.
-                      onError={() => {
-                        if (attachment.previewUrl) markMissing(attachment);
-                      }}
-                    />
+                    <span class="attachment-file-copy">
+                      <strong title={attachment.name}>{attachment.name}</strong>
+                      <small>{format.fileSize(attachment.size)}</small>
+                    </span>
                   </span>
-                </Show>
-                <span class="attachment-file-copy">
-                  <strong title={attachment.name}>{attachment.name}</strong>
-                  <small>{isMissing(attachment) ? t("attachment.notFound") : format.fileSize(attachment.size)}</small>
-                </span>
-              </Button>
-              <Show when={!isMissing(attachment)}>
+                }
+              >
+                <Button
+                  variant="ghost"
+                  type="button"
+                  class="attachment-preview-button"
+                  disabled={isMissing(attachment) || !canPreviewAttachment(attachment)}
+                  aria-label={t("attachment.preview", { name: attachment.name })}
+                  data-attachment-id={attachment.id}
+                  data-cuelume-tap="open"
+                  onClick={(event) => props.onPreview?.(attachment, event.currentTarget)}
+                >
+                  <Show
+                    when={attachment.previewKind === "image" && imageUrl(attachment) && !isMissing(attachment)}
+                    fallback={
+                      <span
+                        class="attachment-file-visual"
+                        data-file-tone={attachmentReferenceTone(attachment.name)}
+                        aria-hidden="true"
+                      >
+                        <Show when={mediaKind(attachment)} fallback={<AttachmentFileIcon />}>
+                          <Show when={mediaKind(attachment) === "audio"} fallback={<Film />}>
+                            <AudioLines />
+                          </Show>
+                        </Show>
+                      </span>
+                    }
+                  >
+                    <span
+                      class="attachment-file-visual attachment-file-image"
+                      data-file-tone={attachmentReferenceTone(attachment.name)}
+                    >
+                      <img
+                        src={imageUrl(attachment) ?? ""}
+                        alt=""
+                        loading="lazy"
+                        decoding="async"
+                        // A loaded copy exists, so its error does not mean that the host lost the file.
+                        onError={() => {
+                          if (attachment.previewUrl) markMissing(attachment);
+                        }}
+                      />
+                    </span>
+                  </Show>
+                  <span class="attachment-file-copy">
+                    <strong title={attachment.name}>{attachment.name}</strong>
+                    <small>{isMissing(attachment) ? t("attachment.notFound") : format.fileSize(attachment.size)}</small>
+                  </span>
+                </Button>
+              </Show>
+              <Show when={!isMissing(attachment) && props.onAction}>
                 <Show when={canLoadMedia(attachment)}>
                   <Button
                     variant="ghost"
@@ -146,7 +165,7 @@ export function AttachmentCards(props: {
                   type="button"
                   class="attachment-open-button"
                   aria-label={t("attachment.download", { name: attachment.name })}
-                  onClick={() => props.onAction(attachment, "download")}
+                  onClick={() => props.onAction?.(attachment, "download")}
                 >
                   <Download />
                 </Button>
@@ -157,7 +176,7 @@ export function AttachmentCards(props: {
                     type="button"
                     class="attachment-open-button"
                     aria-label={t("attachment.open", { name: attachment.name })}
-                    onClick={() => props.onAction(attachment, "open")}
+                    onClick={() => props.onAction?.(attachment, "open")}
                   >
                     <ExternalLink />
                   </LabelTooltipTrigger>

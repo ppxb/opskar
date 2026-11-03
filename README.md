@@ -120,12 +120,91 @@ regular file; a credential path that is a directory or symbolic link is refused.
 value uses AES-256-GCM with a fresh 12-byte nonce, a 16-byte tag, and a versioned header. Authentication
 binds the value to its provider identifier, so swapping encrypted provider entries is refused.
 This does not prevent deleting an entire entry or replaying older ciphertext for the same provider.
-Keep the data directory private. No credential read/write HTTP routes are provided yet.
+Keep the data directory private. The console below saves its own encrypted OpenAI-compatible profile.
+No HTTP route returns a saved API key.
 
 The shared store remains compatible with the desktop's existing envelope and operating-system
 cipher. The Node host uses its own file and does not import or decrypt desktop credentials.
 `bun run test:server-credentials` uses synthetic values and real Node processes. Its report is
 `.openbot-build/server-credentials/report.json`; no secret values enter the report.
+
+### Independent server Web console
+
+The local Web entry reuses the existing workspace frame, sidebar, conversation header and message
+components. After password sign-in, `/` shows real Agent records and saved conversation pages from
+the Node database. This first workspace slice is read-only: select an Agent, load earlier messages,
+refresh, and sign out. It does not start agents, tools, inspection schedules or CI/CD jobs.
+
+The local view has its own data source. It does not construct a cloud account or connect through
+Signal or WebRTC. Unavailable write actions are hidden. Agent execution and the full interactive
+conversation controller still need migration. A new data directory shows an empty workspace;
+this entry does not seed Agents or import an existing desktop profile.
+
+Prepare two separate private files outside the data directory. The encryption file has the format
+described above. The Web password file contains a strong password of at least 16 characters.
+Both files must be readable only by the service user. Do not use the encryption key as the password.
+For example, after your secret manager has supplied the files, start from PowerShell:
+
+```powershell
+$env:OPSKAR_CREDENTIAL_KEY_FILE = 'E:\secrets\opskar-credential.key'
+$env:OPSKAR_WEB_PASSWORD_FILE = 'E:\secrets\opskar-web-password.txt'
+bun run server:web --data-dir .openbot/server --port 3080
+```
+
+Open `http://127.0.0.1:3080` and enter the Web password. Use the numeric address: Host and Origin
+checks reject other addresses. On Linux, export the same environment variables with your own file
+paths. Bun runs the command; Node.js 24 runs the server. Ctrl+C stops this command.
+
+The encryption key file is needed for saved Provider credentials. A new workspace with no saved
+credentials can be read with only `OPSKAR_WEB_PASSWORD_FILE` configured. Keep the encryption key
+configured once encrypted credentials exist.
+
+The workspace ID is saved in `opskar-workspace-v1.json`; restart preserves it, and another data
+directory gets its own ID. A damaged identity file stops startup without replacing the file.
+History uses the existing database page order and turn boundaries, with a target of 50 messages.
+The page cursor belongs to one workspace, Agent and thread. Reads do not create threads, mark
+messages read, or write back displayed text. The browser keeps only the selected Agent ID in
+session storage. Message text stays in memory and is released when the view closes.
+
+This view displays saved text and attachment labels. Interactive cards, file previews, media and
+downloads are not active. Known secrets are redacted before replies reach the browser; saved
+records remain unchanged. Markdown images appear as links and do not load automatically.
+
+Open **Provider settings**, or visit `/settings/providers`, to use the existing configuration and
+connection-test page. It shares the local session. This temporary settings route remains until
+the original Provider settings workflow is connected to Agent execution.
+
+Enter the API base URL, model ID and API key, then select **Save** and **Test connection**. A base
+URL such as `https://api.deepseek.com/v1` sends the test to `/v1/chat/completions`. Use a model ID
+supported by that endpoint. HTTPS is accepted; HTTP is limited to localhost, loopback or private
+IPv4 addresses. URL credentials, query parameters and fragments are refused. Custom headers,
+model discovery and other API protocols are not included in this step.
+
+The API key field stays empty after saving. Leave it empty to keep the saved key, or select **Use
+no API key** to remove it. A changed base URL requires a new key entry or explicit key removal.
+The entire profile is encrypted in `opskar-openai-profile-v1.json` with its own context. An unreadable
+profile or missing encryption key stops Web startup without replacing the file. Without a key and
+without a profile, the page reports that storage is unconfigured and blocks writes.
+
+The test sends only the fixed message `Reply with OK.`, the model ID and an optional Authorization
+header. It requests at most 32 output tokens, can incur Provider charges, and stops after 20 seconds.
+Cancel closes the upstream request. Redirects are refused. Errors are safe messages, and successful
+response text is redacted before the page receives it. Workspaces and chats are not sent by this test.
+
+Sessions use HttpOnly, SameSite=Strict cookies, expire after eight hours, and end on sign-out or
+server restart. This development console uses Vite middleware on loopback. It serves source modules;
+do not expose it through a public tunnel or reverse proxy. Production assets, TLS and Docker service
+deployment remain separate work. It does not start the Cloudflare account service.
+
+`bun run test:server-web` uses real Node processes, a local fake Provider, and a real browser. On
+Windows it uses installed Microsoft Edge. Elsewhere it uses an installed Playwright Chromium, or
+the executable named by `OPSKAR_E2E_BROWSER_PATH`. Reports and screenshots are under
+`.openbot-build/server-web/`. No external AI credentials are needed.
+
+`bun run test:server-workspace` seeds a separate test database through the real stores. It checks
+authenticated reads, paging, selection, refresh, sign-out, redaction, restart and the absence of
+cloud requests in a real browser. Its report and screenshot are under
+`.openbot-build/server-workspace/`. The tests do not use a mocked workspace API.
 
 ## Commands
 
@@ -134,6 +213,10 @@ cipher. The Node host uses its own file and does not import or decrypt desktop c
 | `bun run dev` | Start the existing host development stack. |
 | `bun run dev:api` | Start the account application and Web entry. |
 | `bun run server:dev --data-dir <directory>` | Start the independent storage bootstrap on loopback. |
+| `bun run server:web --data-dir <directory> --port 3080` | Start the local workspace and Provider settings with the configured secret files. |
+| `bun run test:server-web` | Check the console API, encryption and browser actions with a local Provider. |
+| `bun run test:server-workspace` | Check real stored Agent/history data and local workspace browser actions. |
+| `bun run typecheck:server-web` | Check the independent console and its UI imports. |
 | `bun run test:server-bootstrap` | Check the Node bootstrap, shutdown and data preservation. |
 | `bun run test:server-storage` | Check agent and queue persistence without starting execution. |
 | `bun run test:server-credentials` | Check encrypted credentials, restart, corruption and redaction. |

@@ -25,15 +25,17 @@ export function SidebarAgentContextMenu(menuProps: { agent: AgentProfile; pinned
   return (
     <ContextMenu.Portal>
       <ContextMenu.Content class="agent-context-menu" aria-label={t("sidebar.agentMenu.label")}>
-        <ContextMenu.Item
-          data-cuelume-tap="toggle"
-          onSelect={() => (menuProps.pinned ? props.onUnpin(ref()) : props.onPin(ref()))}
-        >
-          <Show when={menuProps.pinned} fallback={<Pin class="agent-context-icon size-4" aria-hidden="true" />}>
-            <PinOff class="agent-context-icon size-4" aria-hidden="true" />
-          </Show>
-          <span>{menuProps.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</span>
-        </ContextMenu.Item>
+        <Show when={menuProps.pinned ? props.onUnpin : props.onPin}>
+          <ContextMenu.Item
+            data-cuelume-tap="toggle"
+            onSelect={() => (menuProps.pinned ? props.onUnpin?.(ref()) : props.onPin?.(ref()))}
+          >
+            <Show when={menuProps.pinned} fallback={<Pin class="agent-context-icon size-4" aria-hidden="true" />}>
+              <PinOff class="agent-context-icon size-4" aria-hidden="true" />
+            </Show>
+            <span>{menuProps.pinned ? t("sidebar.unpin") : t("sidebar.pin")}</span>
+          </ContextMenu.Item>
+        </Show>
         <Show when={!menuProps.userHidden && props.onNewAgentThread}>
           {(start) => (
             <ContextMenu.Item onSelectAfterClose={() => start()(menuProps.agent.id)}>
@@ -51,10 +53,12 @@ export function SidebarAgentContextMenu(menuProps: { agent: AgentProfile; pinned
           )}
         </Show>
         <SidebarMoveToSubmenu chatId={menuProps.agent.id} />
-        <ContextMenu.Item onSelect={() => props.onEditAgent(menuProps.agent.id)}>
-          <EditIcon />
-          <span>{t("sidebar.agentMenu.edit")}</span>
-        </ContextMenu.Item>
+        <Show when={props.onEditAgent}>
+          <ContextMenu.Item onSelect={() => props.onEditAgent?.(menuProps.agent.id)}>
+            <EditIcon />
+            <span>{t("sidebar.agentMenu.edit")}</span>
+          </ContextMenu.Item>
+        </Show>
         <Show when={props.duplicateSupported !== false && props.onDuplicateAgent}>
           <ContextMenu.Item
             disabled={props.duplicatingAgentIds?.has(menuProps.agent.id) ?? false}
@@ -80,7 +84,7 @@ export function SidebarAgentContextMenu(menuProps: { agent: AgentProfile; pinned
             <span>{restoreLabel()}</span>
           </ContextMenu.Item>
         </Show>
-        <Show when={props.deleteSupported !== false}>
+        <Show when={props.deleteSupported !== false && props.onDeleteAgent}>
           <ContextMenu.Separator />
           <ContextMenu.Item
             class="ui-action-menu-danger agent-context-danger"

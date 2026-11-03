@@ -198,25 +198,25 @@ function InteractiveSidebar(props: Parameters<typeof Sidebar>[0]) {
             ? current
             : normalizeSidebarPinnedItems([...current, item]),
         );
-        props.onPin(item);
+        props.onPin?.(item);
       }}
       onUnpin={(item) => {
         setPinnedItems((current) =>
           current.filter((candidate) => candidate.kind !== item.kind || candidate.id !== item.id),
         );
-        props.onUnpin(item);
+        props.onUnpin?.(item);
       }}
       onReorderPinned={(items) => {
         setPinnedItems(items);
-        props.onReorderPinned(items);
+        props.onReorderPinned?.(items);
       }}
       onReorderPeople={(memberIds) => {
         setPeopleOrder(memberIds);
-        props.onReorderPeople(memberIds);
+        props.onReorderPeople?.(memberIds);
       }}
       onMutateLayout={async (action) => {
         setLayout((current) => applySidebarLayoutAction(current, action));
-        await props.onMutateLayout(action);
+        await props.onMutateLayout?.(action);
       }}
       onToggleSection={(sectionId) => {
         setCollapsedSectionIds((current) =>

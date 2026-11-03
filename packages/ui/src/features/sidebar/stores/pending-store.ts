@@ -189,7 +189,7 @@ export function createSidebarPendingStore(deps: {
 
   async function saveSectionEditor(): Promise<void> {
     const editor = pending.sectionEditor;
-    if (!editor || editor.saving) return;
+    if (!editor || editor.saving || !props.onMutateLayout) return;
     const name = editor.name.trim();
     if (!name) {
       setSectionNameError(currentText().t("sidebar.section.nameRequired"));
@@ -213,7 +213,7 @@ export function createSidebarPendingStore(deps: {
       state.sectionEditor.saving = true;
     });
     try {
-      await props.onMutateLayout(
+      await props.onMutateLayout?.(
         target.kind === "create"
           ? {
               type: "create",
@@ -240,10 +240,10 @@ export function createSidebarPendingStore(deps: {
 
   async function confirmSectionDelete(): Promise<void> {
     const deletion = pending.deletion;
-    if (deletion?.kind !== "section" || deletion.deleting) return;
+    if (deletion?.kind !== "section" || deletion.deleting || !props.onMutateLayout) return;
     beginDelete();
     try {
-      await props.onMutateLayout({ type: "delete", sectionId: deletion.id });
+      await props.onMutateLayout?.({ type: "delete", sectionId: deletion.id });
       closeDelete();
     } catch (error) {
       failDelete(error);

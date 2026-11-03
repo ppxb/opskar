@@ -303,8 +303,10 @@ export function MessageBody(props: {
   skills?: InstalledSkill[] | undefined;
   onSelectAgent: (agentId: string) => void;
   onOpenLink: (url: string) => void;
-  onPreview: (attachment: AttachmentSummary) => void;
-  onAttachmentAction: (attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void;
+  onPreview?: ((attachment: AttachmentSummary) => void) | undefined;
+  onAttachmentAction?: ((attachment: AttachmentSummary, action: "open" | "reveal" | "download") => void) | undefined;
+  imagesAsLinks?: boolean | undefined;
+  linkFavicons?: boolean | undefined;
   onOpenSharedFile?: ((path: string) => void) | undefined;
   onOpenWorkspaceFile?: ((path: string) => void) | undefined;
   /** Opens the passage that a quote in the message points to. */
@@ -484,9 +486,9 @@ export function MessageBody(props: {
         markdown: named,
       });
     } else if (canPreviewAttachment(attachment)) {
-      props.onPreview(attachment);
+      props.onPreview?.(attachment);
     } else {
-      props.onAttachmentAction(attachment, "open");
+      props.onAttachmentAction?.(attachment, "open");
     }
   };
   /* A markdown image opens with the other markdown images of its message, in the order they show. */
@@ -524,13 +526,15 @@ export function MessageBody(props: {
   const renderMarkdownInline = (body: string) => (
     <MarkdownInlineText
       body={body}
+      imagesAsLinks={props.imagesAsLinks}
+      linkFavicons={props.linkFavicons}
       agents={props.agents}
       skills={props.skills}
       attachments={props.message.attachments}
       citations={props.message.citations}
       onSelectAgent={props.onSelectAgent}
       onOpenLink={props.onOpenLink}
-      onOpenAttachment={openAttachment}
+      onOpenAttachment={props.onPreview || props.onAttachmentAction ? openAttachment : undefined}
       onOpenImage={openMarkdownImage}
       onOpenSharedFile={props.onOpenSharedFile}
       onOpenWorkspaceFile={props.onOpenWorkspaceFile}
@@ -689,6 +693,8 @@ export function MessageBody(props: {
                           data-selection-message-id={props.message.streaming !== true ? props.message.id : undefined}
                         >
                           <MarkdownMessageText
+                            imagesAsLinks={props.imagesAsLinks}
+                            linkFavicons={props.linkFavicons}
                             body={text().text}
                             agents={props.agents}
                             skills={props.skills}
@@ -696,7 +702,7 @@ export function MessageBody(props: {
                             citations={props.message.citations}
                             onSelectAgent={props.onSelectAgent}
                             onOpenLink={props.onOpenLink}
-                            onOpenAttachment={openAttachment}
+                            onOpenAttachment={props.onPreview || props.onAttachmentAction ? openAttachment : undefined}
                             onOpenImage={openMarkdownImage}
                             onOpenSharedFile={props.onOpenSharedFile}
                             onOpenWorkspaceFile={props.onOpenWorkspaceFile}
@@ -758,7 +764,7 @@ export function MessageBody(props: {
           <AttachmentCards
             attachments={standaloneFileAttachments()}
             mediaSource={props.mediaSource}
-            onPreview={openAttachment}
+            onPreview={props.onPreview || props.onAttachmentAction ? openAttachment : undefined}
             onAction={props.onAttachmentAction}
           />
         </div>

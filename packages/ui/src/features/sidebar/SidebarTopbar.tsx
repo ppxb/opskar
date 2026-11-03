@@ -110,7 +110,12 @@ export function SidebarTopbar() {
           }}
         </Show>
         {/* The menu view needs the room for the server name. The page rail also opens the marketplace. */}
-        <Show when={props.compact || (props.marketplaceSupported !== false && props.serverMenu?.view !== "menu")}>
+        <Show
+          when={
+            props.compact ||
+            (props.marketplaceSupported !== false && props.onOpenMarketplace && props.serverMenu?.view !== "menu")
+          }
+        >
           <Button
             variant="ghost"
             type="button"
@@ -118,7 +123,7 @@ export function SidebarTopbar() {
               "sidebar-icon-button no-drag",
               props.compact ? "sidebar-toggle-button" : "sidebar-marketplace-button",
             ]}
-            onClick={() => (props.compact ? props.onExpand() : props.onOpenMarketplace())}
+            onClick={() => (props.compact ? props.onExpand() : props.onOpenMarketplace?.())}
             data-cuelume-tap={props.compact ? "open" : "navigate"}
             aria-label={props.compact ? t("sidebar.topbar.expand") : t("sidebar.topbar.openMarketplace")}
             aria-controls={props.compact ? "agent-sidebar" : undefined}
@@ -130,7 +135,9 @@ export function SidebarTopbar() {
             </Show>
           </Button>
         </Show>
-        <Show when={props.createSupported !== false || props.onCreateChannel || layoutMutable()}>
+        <Show
+          when={(props.createSupported !== false && props.onCreateAgent) || props.onCreateChannel || layoutMutable()}
+        >
           <DropdownMenu.Root placement="bottom-end" gutter={4}>
             <DropdownMenu.Trigger
               class="sidebar-icon-button sidebar-new-button no-drag"
@@ -142,7 +149,7 @@ export function SidebarTopbar() {
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
               <DropdownMenu.Content>
-                <Show when={props.createSupported !== false}>
+                <Show when={props.createSupported !== false && props.onCreateAgent}>
                   <DropdownMenu.Item onSelectAfterClose={props.onCreateAgent}>
                     <Bot aria-hidden="true" />
                     {t("sidebar.new.agent")}

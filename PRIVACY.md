@@ -12,8 +12,26 @@ The independent Node host in `src/server` has separate provider credential stora
 operator-supplied key file outside its data directory and uses AES-256-GCM to save encrypted values
 in `opskar-provider-credentials-v1.json`. The key is not generated, replaced or uploaded by the
 host. Decrypted values stay inside the process and are registered for log redaction. The readiness
-endpoint reports only whether credential storage is configured. This entry has no credential HTTP
-routes or provider execution yet. See [server credentials](README.md#independent-server-credentials).
+endpoint reports only whether credential storage is configured.
+
+The optional local Web console saves an OpenAI-compatible endpoint, model ID and API key together
+in the encrypted `opskar-openai-profile-v1.json` file. Its password comes from a separate operator
+file. Session cookies are HttpOnly and SameSite=Strict; server sessions remain in memory and expire
+on sign-out, restart or after eight hours. The browser never receives a saved API key.
+Selecting Test connection sends a fixed `Reply with OK.` message and the configured model ID to
+the saved endpoint, with the API key in the Authorization header when present. No workspace, file
+or conversation content is included. Successful response text is redacted before display and is
+not saved as a conversation. The console does not contact the account service or send analytics.
+See [the local console](README.md#independent-server-web-console).
+
+The independent local workspace at `/` reads Agent records and conversation text from that Node
+host's SQLite database over the same-origin authenticated API. Its workspace identifier is saved
+locally in `opskar-workspace-v1.json`. This read-only view does not contact the cloud account,
+hosting, Signal or Provider services. It sends no analytics. The selected Agent ID is kept in
+browser session storage; conversation text stays in memory and is cleared when the view closes.
+Known secrets are redacted in HTTP replies without changing saved records. Attachment and avatar
+URLs are not sent by this view, and Markdown images and link icons do not load automatically.
+Opening an ordinary Web link remains an explicit browser action.
 
 The optional browser client at `/app` connects to the computer that runs OpenBot. Conversation
 and attachment data travel through the existing encrypted host connection, not through the

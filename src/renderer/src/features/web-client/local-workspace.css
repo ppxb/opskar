@@ -1,0 +1,39 @@
+@import "./web-client.css";
+
+.local-workspace {
+  height: 100dvh;
+}
+
+.local-workspace-frame {
+  height: 100%;
+}
+
+.local-workspace-conversation {
+  min-height: 0;
+}
+
+.local-workspace-notices {
+  display: grid;
+  gap: var(--openbot-space-2);
+  padding: var(--openbot-space-3) var(--openbot-space-6);
+}
+
+.local-workspace-history {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.local-workspace-empty {
+  display: grid;
+  gap: var(--openbot-space-3);
+  padding: var(--openbot-space-8);
+  text-align: center;
+}
+
+.local-workspace-sidebar-note {
+  padding: var(--openbot-space-3) var(--openbot-space-4);
+}
+
+.local-workspace .conversation-header-actions {
+  flex-wrap: wrap;
+}

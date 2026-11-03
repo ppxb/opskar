@@ -76,7 +76,7 @@ export function createSidebarLayoutActions(deps: {
   /** Puts a folder with its folders in `parentId` (null: the top), before `beforeSectionId` or last. */
   function nestSection(sectionId: string, parentId: string | null, beforeSectionId: string | null): void {
     if (!sectionCanNest(sectionId, parentId)) return;
-    void props.onMutateLayout({ type: "nest", sectionId, parentId, beforeSectionId }).then(() => {
+    void props.onMutateLayout?.({ type: "nest", sectionId, parentId, beforeSectionId }).then(() => {
       const siblings = sectionChildren(parentId);
       announce(
         t("sidebar.announce.movedToPosition", {
@@ -115,7 +115,7 @@ export function createSidebarLayoutActions(deps: {
     const rawTargetIndex = targetSectionId ? props.layout.order.indexOf(targetSectionId) : -1;
     if (index < 0 || rawIndex < 0 || rawTargetIndex < 0) return;
     const steps = Math.abs(rawTargetIndex - rawIndex);
-    void props.onMutateLayout({ type: "move", sectionId, direction, steps }).catch(announceError);
+    void props.onMutateLayout?.({ type: "move", sectionId, direction, steps }).catch(announceError);
   }
 
   /** The host reports a failed copy itself; the live region only needs to hear that it failed. */
@@ -128,7 +128,7 @@ export function createSidebarLayoutActions(deps: {
    * keeps its released `agentId` field name; a channel id travels in it the same way.
    */
   function assignChatSection(chatId: string, sectionId: string | null): void {
-    void props.onMutateLayout({ type: "assign", agentId: chatId, sectionId }).catch(announceError);
+    void props.onMutateLayout?.({ type: "assign", agentId: chatId, sectionId }).catch(announceError);
   }
 
   /** The ids a section shows, in order, without the chat that is being dragged out of it. */
@@ -145,7 +145,7 @@ export function createSidebarLayoutActions(deps: {
     const targetIndex = memberIds.indexOf(target.memberId);
     if (targetIndex < 0) return;
     memberIds.splice(targetIndex + (target.placement === "after" ? 1 : 0), 0, sourceMemberId);
-    props.onReorderPeople(memberIds);
+    props.onReorderPeople?.(memberIds);
     const position = memberIds.indexOf(sourceMemberId) + 1;
     const member = personById().get(sourceMemberId);
     announce(
@@ -172,7 +172,7 @@ export function createSidebarLayoutActions(deps: {
     const action = moveChatAction(chatId, target);
     if (!action) return;
     void props
-      .onMutateLayout(action)
+      .onMutateLayout?.(action)
       .then(
         () =>
           announce(t("sidebar.announce.movedIn", { name: chatName(chatId), section: sectionLabel(target.sectionId) })),
@@ -207,7 +207,7 @@ export function createSidebarLayoutActions(deps: {
     const visibleOrder = visibleSectionIds().filter((sectionId) => sectionId !== sourceSectionId);
     const visibleTargetIndex = visibleOrder.indexOf(target.sectionId);
     const visibleInsertionIndex = visibleTargetIndex + (target.placement === "after" ? 1 : 0);
-    void props.onMutateLayout({ type: "move", sectionId: sourceSectionId, direction, steps }).then(
+    void props.onMutateLayout?.({ type: "move", sectionId: sourceSectionId, direction, steps }).then(
       () =>
         announce(
           t("sidebar.announce.movedToPosition", {
@@ -222,7 +222,7 @@ export function createSidebarLayoutActions(deps: {
 
   function pinDraggedSidebarItem(): boolean {
     const item = draggedSidebarItem();
-    if (!item || !canPinDraggedSidebarItem()) return false;
+    if (!item || !canPinDraggedSidebarItem() || !props.onPin) return false;
     props.onPin(item);
     announce(t("sidebar.announce.pinned", { name: chatName(item.id) }));
     return true;
@@ -274,8 +274,8 @@ export function createSidebarLayoutActions(deps: {
     const ref = pinnedRef(source.key);
     if (!ref) return;
     try {
-      if (action) await props.onMutateLayout(action);
-      props.onUnpin(ref);
+      if (action) await props.onMutateLayout?.(action);
+      props.onUnpin?.(ref);
       announce(t("sidebar.announce.movedTo", { name: chatName(source.id), section: sectionLabel(sectionId) }));
     } catch (error) {
       announceError(error);
@@ -302,7 +302,7 @@ export function createSidebarLayoutActions(deps: {
       else if (target?.kind === "chat") moveDraggedChat(source.id, target.target);
       else if (target?.kind === "section") {
         void props
-          .onMutateLayout(appendChatAction(source.id, target.sectionId))
+          .onMutateLayout?.(appendChatAction(source.id, target.sectionId))
           .then(
             () =>
               announce(
@@ -332,7 +332,7 @@ export function createSidebarLayoutActions(deps: {
     const [source] = items.splice(sourceIndex, 1);
     if (!source) return;
     items.splice(targetIndex, 0, source);
-    props.onReorderPinned(items);
+    props.onReorderPinned?.(items);
     const position = visiblePinnedKeys().indexOf(targetKey) + 1;
     announce(t("sidebar.announce.movedPinned", { position, total: visiblePinnedKeys().length }));
   }

@@ -80,7 +80,7 @@ export interface SidebarProps {
   layout: SidebarLayoutSnapshot;
   layoutMutable?: boolean | undefined;
   collapsedSectionIds: string[];
-  onMutateLayout: (action: SidebarLayoutAction) => Promise<void>;
+  onMutateLayout?: ((action: SidebarLayoutAction) => Promise<void>) | undefined;
   /**
    * Whether this server keeps folders in folders (`sidebar-folders-v1`). Without it, a folder cannot go
    * into another folder, and the menu has no items to put it there.
@@ -93,21 +93,21 @@ export interface SidebarProps {
   onToggleSection: (sectionId: string) => void;
   pinnedItems: SidebarPinnedItem[];
   peopleOrder: string[];
-  onPin: (item: SidebarPinnedItem) => void;
-  onUnpin: (item: SidebarPinnedItem) => void;
-  onReorderPinned: (items: SidebarPinnedItem[]) => void;
-  onReorderPeople: (memberIds: string[]) => void;
+  onPin?: ((item: SidebarPinnedItem) => void) | undefined;
+  onUnpin?: ((item: SidebarPinnedItem) => void) | undefined;
+  onReorderPinned?: ((items: SidebarPinnedItem[]) => void) | undefined;
+  onReorderPeople?: ((memberIds: string[]) => void) | undefined;
   onSelectAgent: (agentId: string) => void;
-  onSelectPerson: (memberId: string) => void;
+  onSelectPerson?: ((memberId: string) => void) | undefined;
   onPreloadDirectConversation?: (() => void) | undefined;
   /** Whether this server currently accepts new agents. Desktop keeps the default enabled. */
   createSupported?: boolean | undefined;
-  onCreateAgent: () => void;
-  onEditAgent: (agentId: string) => void;
+  onCreateAgent?: (() => void) | undefined;
+  onEditAgent?: ((agentId: string) => void) | undefined;
   duplicateSupported?: boolean | undefined;
   duplicatingAgentIds?: ReadonlySet<string> | undefined;
   onDuplicateAgent?: ((agentId: string) => Promise<void>) | undefined;
-  onDeleteAgent: (agentId: string) => Promise<void>;
+  onDeleteAgent?: ((agentId: string) => Promise<void>) | undefined;
   /**
    * The agents that a user hid on this server (`agent-hidden-v1`). They leave their sections, the
    * pinned strip and "Needs you", and show only in the "Hidden" group at the end of the list. Each
@@ -129,8 +129,8 @@ export interface SidebarProps {
   footer?: JSX.Element;
   onExpand: () => void;
   /** Opens the global search. The search field and the compact search button both call it. */
-  onOpenSearch: () => void;
-  onOpenMarketplace: () => void;
+  onOpenSearch?: (() => void) | undefined;
+  onOpenMarketplace?: (() => void) | undefined;
   /** The agents are still on their way, so an empty list says that it connects rather than that it is empty. */
   agentsConnecting?: boolean | undefined;
   emptyAction?:

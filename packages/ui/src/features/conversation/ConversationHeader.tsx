@@ -13,11 +13,13 @@ export interface ConversationHeaderProps {
   agent: AgentProfile | null | undefined;
   /** The title of a chat that has no one agent, such as a channel. It shows when `agent` is missing. */
   title?: JSX.Element | undefined;
-  modelPicker: ComponentProps<typeof ProviderModelPicker>;
+  modelPicker?: ComponentProps<typeof ProviderModelPicker> | undefined;
   /** A model, effort, provider or account chosen during the running turn. It applies from the next turn. */
   pendingModel?: ConversationHeaderPendingModel | undefined;
-  onSettingsIntent: () => void;
-  onOpenSettings: () => void;
+  onSettingsIntent?: (() => void) | undefined;
+  onOpenSettings?: (() => void) | undefined;
+  /** Read-only hosts can provide navigation actions without an agent settings menu. */
+  actions?: JSX.Element | undefined;
   /** Set while a side thread is open: the agent's name then opens the agent's own chat, not its settings. */
   onOpenChat?: (() => void) | undefined;
   remoteControl?: ConversationHeaderRemoteControl | undefined;
@@ -55,21 +57,31 @@ export function ConversationHeader(props: ConversationHeaderProps) {
       <div class="conversation-heading-group">
         <Show when={props.agent} fallback={props.title}>
           {(agent) => (
-            <Button
-              variant="ghost"
-              size="sm"
-              type="button"
-              class="conversation-title no-drag"
-              data-tab={titleTab()}
-              data-selected={titleSelected()}
-              aria-label={props.onOpenChat ? t("conversation.header.mainChat") : t("conversation.header.settings")}
-              onPointerEnter={() => props.onOpenChat || props.onSettingsIntent()}
-              onFocus={() => props.onOpenChat || props.onSettingsIntent()}
-              onClick={() => (props.onOpenChat ?? props.onOpenSettings)()}
+            <Show
+              when={props.onOpenChat || props.onOpenSettings}
+              fallback={
+                <div class="conversation-title">
+                  <AgentAvatar agent={agent()} />
+                  <h1>{agent().name}</h1>
+                </div>
+              }
             >
-              <AgentAvatar agent={agent()} />
-              <h1>{agent().name}</h1>
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                type="button"
+                class="conversation-title no-drag"
+                data-tab={titleTab()}
+                data-selected={titleSelected()}
+                aria-label={props.onOpenChat ? t("conversation.header.mainChat") : t("conversation.header.settings")}
+                onPointerEnter={() => props.onOpenChat || props.onSettingsIntent?.()}
+                onFocus={() => props.onOpenChat || props.onSettingsIntent?.()}
+                onClick={() => (props.onOpenChat ?? props.onOpenSettings)?.()}
+              >
+                <AgentAvatar agent={agent()} />
+                <h1>{agent().name}</h1>
+              </Button>
+            </Show>
           )}
         </Show>
         <Show when={props.agent && agentAccessLockLabel(props.agent, t)}>
@@ -94,9 +106,8 @@ export function ConversationHeader(props: ConversationHeaderProps) {
             );
           }}
         </Show>
-        <Show when={props.agent}>
-          <ProviderModelPicker {...props.modelPicker} />
-        </Show>
+        <Show when={props.agent && props.modelPicker}>{(picker) => <ProviderModelPicker {...picker()} />}</Show>
+        {props.actions}
         <Show when={props.remoteControl}>
           {(control) => (
             <Button

@@ -200,7 +200,10 @@ export function createSidebarDragEngine(deps: SidebarDragEngineDeps) {
     event: DragEvent & { currentTarget: HTMLElement },
     options: SidebarNativeDragStart,
   ): void {
-    if (deps.props.compact) {
+    if (
+      deps.props.compact ||
+      (!deps.props.onMutateLayout && !deps.props.onPin && !deps.props.onReorderPinned && !deps.props.onReorderPeople)
+    ) {
       event.preventDefault();
       return;
     }
