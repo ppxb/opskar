@@ -10,7 +10,16 @@ const ServerOptions = Schema.Struct({
 export type ServerOptions = typeof ServerOptions.Type;
 
 export class ServerStartupFailed extends Schema.TaggedError<ServerStartupFailed>()("ServerStartupFailed", {
-  code: Schema.Literals(["directory", "directory-in-use", "directory-not-owned", "database", "listener", "shutdown"]),
+  code: Schema.Literals([
+    "directory",
+    "directory-in-use",
+    "directory-not-owned",
+    "database",
+    "agent-store",
+    "mailbox-store",
+    "listener",
+    "shutdown",
+  ]),
   cause: Schema.Defect(),
 }) {}
 

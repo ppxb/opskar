@@ -49,7 +49,7 @@ bun run dev
 
 ### Independent server: storage bootstrap
 
-The first server migration step can run without Electron:
+The independent server can initialize the database, agent store and mailbox without Electron:
 
 ```sh
 bun run server:dev --data-dir .openbot/server
@@ -63,10 +63,28 @@ The command requires an explicit data directory. On its first start, that direct
 It refuses existing desktop profiles before opening their database. Later starts recognize the
 server's owner marker and use an exclusive lock. Do not share the directory with Electron.
 
-The process prints its actual loopback address. `GET /health/ready` reports `stage: "storage"`
-and the database schema version. Use `--port <port>` to choose a port. No application, account,
-agent, provider or scheduler routes are enabled. The Web client is not connected to this entry.
+The process prints its actual loopback address after both stores have initialized.
+`GET /health/ready` reports `stage: "storage"` and the database schema version.
+Use `--port <port>` to choose a port. No application, account, agent, provider or scheduler routes
+are enabled. The Web client is not connected to this entry.
 The owner marker is not a replacement for database or credential migration.
+
+All new storage paths belong to the explicit data directory:
+
+| Path under the data directory | Contents |
+| --- | --- |
+| `openbot.db` | Shared database for agent records, threads and the mailbox. |
+| `files/Agents/<agent-id>` | Agent workspaces. |
+| `files/Shared` | Shared files. |
+| `files/Shared/Transfers` | Attachment transfers. |
+| `files/Downloads` | Downloaded files. |
+| `avatars/agents` | Agent avatars. |
+| `attachment-drafts` | Managed attachment drafts. |
+
+The stores use their existing startup recovery and attachment maintenance. Saved agent IDs,
+thread IDs, workspace paths and queue order remain authoritative. AgentService, providers and
+queue execution are not started, so pending messages remain queued. The stores are internal
+services; adding authenticated application routes is a later step.
 
 Ctrl+C or SIGTERM closes the listener and database, then releases the directory lock. A parent
 Node process can request the same shutdown over its private IPC channel. A crash can leave the
@@ -75,6 +93,9 @@ been confirmed stopped. This step has no automatic crash recovery or takeover.
 
 `bun run test:server-bootstrap` starts real Node child processes and writes its report and test
 databases under `.openbot-build/server-bootstrap/`. It never opens the desktop profile.
+`bun run test:server-storage` checks agent and mailbox persistence, duplicate message receipts,
+directory isolation and initialization failure cleanup. Its artifacts are under
+`.openbot-build/server-storage/`.
 
 ## Commands
 
@@ -84,6 +105,7 @@ databases under `.openbot-build/server-bootstrap/`. It never opens the desktop p
 | `bun run dev:api` | Start the account application and Web entry. |
 | `bun run server:dev --data-dir <directory>` | Start the independent storage bootstrap on loopback. |
 | `bun run test:server-bootstrap` | Check the Node bootstrap, shutdown and data preservation. |
+| `bun run test:server-storage` | Check agent and queue persistence without starting execution. |
 | `bun run dev:status` | Show this checkout's development processes. |
 | `bun run dev:stop` | Stop this checkout's development stack. |
 | `bun run typecheck:node` | Check host, backend, preload and script types. |

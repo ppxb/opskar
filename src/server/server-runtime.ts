@@ -1,9 +1,7 @@
 import { createServer, type Server } from "node:http";
 import { Context, Effect, Layer } from "effect";
-import { databaseRow, requiredNumberColumn } from "../backend/database/database-rows";
-import { OpenBotDatabase } from "../backend/openbot-database";
-import { acquireServerDirectory } from "./server-directory";
 import { type ServerOptions, ServerStartupFailed } from "./server-options";
+import { ServerStorage } from "./server-storage";
 
 const LOOPBACK = "127.0.0.1";
 
@@ -38,31 +36,7 @@ export class ServerRuntime extends Context.Service<ServerRuntime, { port: number
     return Layer.effect(
       ServerRuntime,
       Effect.gen(function* () {
-        yield* acquireServerDirectory(options.dataDirectory);
-        const database = yield* Effect.acquireRelease(
-          Effect.gen(function* () {
-            const database = new OpenBotDatabase(options.dataDirectory);
-            yield* database
-              .initialize()
-              .pipe(Effect.mapError(({ cause }) => new ServerStartupFailed({ code: "database", cause })));
-            return database;
-          }),
-          (database) =>
-            Effect.try({
-              try: () => database.close(),
-              catch: (cause) => new ServerStartupFailed({ code: "shutdown", cause }),
-            }).pipe(Effect.orDie),
-        );
-        const schemaVersion = yield* Effect.try({
-          try: () => {
-            const row = databaseRow(
-              database.connection.prepare("SELECT MAX(version) AS version FROM schema_migrations").get(),
-            );
-            if (!row) throw new Error("The database has no schema version.");
-            return requiredNumberColumn(row, "version");
-          },
-          catch: (cause) => new ServerStartupFailed({ code: "database", cause }),
-        });
+        const { schemaVersion } = yield* ServerStorage;
         const server = yield* Effect.acquireRelease(
           Effect.sync(() =>
             createServer((request, response) => {
@@ -88,6 +62,6 @@ export class ServerRuntime extends Context.Service<ServerRuntime, { port: number
         });
         return { port, schemaVersion };
       }),
-    );
+    ).pipe(Layer.provideMerge(ServerStorage.layer(options)));
   }
 }
