@@ -1,0 +1,121 @@
+appId: app.openbot.desktop
+productName: OpenBot
+copyright: Copyright © 2026 Synthetify Labs spółka z ograniczoną odpowiedzialnością
+protocols:
+  - name: OpenBot invitations
+    schemes:
+      - openbot
+asar: true
+artifactName: ${productName}-${version}-${arch}.${ext}
+electronUpdaterCompatibility: ">=2.16"
+electronFuses:
+  resetAdHocDarwinSignature: true
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  grantFileProtocolExtraPrivileges: false
+publish:
+  provider: github
+  owner: nightly-labs
+  repo: openbot
+files:
+  - out/**/*
+  - package.json
+  - LICENSE
+  - NOTICE
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-darwin-*/**/*"
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-linux-*/**/*"
+  - "!node_modules/@anthropic-ai/claude-agent-sdk-win32-*/**/*"
+asarUnpack:
+  # The database host is loaded by path as a separate process, not required into the main bundle.
+  - out/main/agent-database-host.js
+  # The voice transcription and speech hosts are started by path in the same way.
+  - out/main/voice-transcription-host.js
+  - out/main/voice-speech-host.js
+  # The unpacked host resolves Effect without loading any application module from asar.
+  - node_modules/effect/**/*
+  # The FFI addon that stops the Dynamic Island panel from activating the app on macOS.
+  - node_modules/@koromix/koffi-*/**/*
+extraResources:
+  - from: resources/managed-skills
+    to: managed-skills
+  - from: resources/plugin-catalog
+    to: plugin-catalog
+  - from: resources/agent-import
+    to: agent-import
+  # `openbot-cli.mjs` runs tasks on agents through the Local scripts API; see docs/automation.md.
+  - from: resources/cli
+    to: cli
+  # `cpu-limit.cjs` makes os.cpus() follow the CPU limit for the Node programs of agents on a server.
+  - from: resources/agent-runtime
+    to: agent-runtime
+  - from: build/icon-production.png
+    to: icons/icon-production.png
+  - from: build/icon-dev.png
+    to: icons/icon-dev.png
+  - from: build/icon-preview.png
+    to: icons/icon-preview.png
+  # The Dock and window icons for the logo color setting. macOS has no alternate app icon API, so
+  # the app sets one of these while it runs.
+  - from: build/logo-colors
+    to: icons/logo-colors
+  - from: node_modules/electron/dist/LICENSE
+    to: licenses/Electron-LICENSE
+  - from: node_modules/electron/dist/LICENSES.chromium.html
+    to: licenses/LICENSES.chromium.html
+  - from: build/licenses/sherpa-onnx-LICENSE
+    to: licenses/sherpa-onnx-LICENSE
+  - from: build/licenses/onnxruntime-LICENSE
+    to: licenses/onnxruntime-LICENSE
+  - from: build/licenses/NVIDIA-Parakeet-TDT-0.6B-v3-LICENSE
+    to: licenses/NVIDIA-Parakeet-TDT-0.6B-v3-LICENSE
+  - from: build/licenses/Underdog-Bark-3.0-Plus-LICENSE
+    to: licenses/Underdog-Bark-3.0-Plus-LICENSE
+  - from: build/licenses/OpenAI-Whisper-LICENSE
+    to: licenses/OpenAI-Whisper-LICENSE
+  - from: build/licenses/Supertone-Supertonic-3-LICENSE
+    to: licenses/Supertone-Supertonic-3-LICENSE
+# The Linux host uses the voice runtime, remote desktop runtime and Computer Use driver below.
+# Keep these resources on the Linux target so each build uses its own architecture.
+directories:
+  output: dist
+toolsets:
+  # The static AppImage runtime (AppImage/type2-runtime) has libfuse built in, so the AppImage starts
+  # on Arch Linux, Omarchy and other systems with no libfuse.so.2. It needs only `fusermount3`
+  # from fuse3. The default toolset needs libfuse.so.2. `--appimage-extract` works with both.
+  appimage: "1.0.3"
+linux:
+  category: Development
+  icon: build/icon-production.png
+  synopsis: A local-first multi-agent desktop workspace.
+  extraResources:
+    - from: build/linux/openbot.apparmor
+      to: linux/openbot.apparmor
+    # A hosted server installs the packages, scripts and units of the release that it updates to.
+    - from: scripts/hosting
+      to: hosting
+      filter:
+        - "**/*"
+        - "!*.ts"
+    # The sherpa-onnx addon and its libraries. The dictation and speech models are downloaded on demand.
+    - from: .openbot-build/voice/runtime
+      to: voice/runtime
+    # Only the x64 build installs this runtime. For arm64 the directory does not exist, and
+    # electron-builder skips a missing source with a warning.
+    - from: build/remote-desktop-runtime
+      to: remote-desktop-runtime
+    - from: build/cua-driver/linux/${arch}
+      to: cua-driver/linux/${arch}
+  # Electron takes its Linux app id from `desktopName` in package.json, and the window manager
+  # matches a running window to the launcher through `StartupWMClass`. Syncing the two from one
+  # value is what makes the taskbar icon group with the window it belongs to.
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch:
+        - x64
+        - arm64
