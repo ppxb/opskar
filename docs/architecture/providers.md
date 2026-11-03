@@ -405,7 +405,7 @@ paid catalog. So `AcpAgentClient` derives `#signedIn` from the models `session/n
 from a credential, and a keyless OpenCode reports `available`. `AcpProviderOptions.extraEnv` is read
 at every spawn, which is what lets a key saved in Settings reach the next process with no other
 plumbing, and what carries `OPENCODE_DISABLE_AUTOUPDATE` to a managed install so the CLI cannot
-update past the pin. `src/main/provider-credential-store.ts` holds that optional key, encrypted by
+update past the pin. `src/backend/provider-credential-store.ts` holds that optional key, encrypted by
 `safeStorage` in a `0o600` envelope under `userData`. Only a status (`missing`, `saved` or
 `unreadable`) crosses IPC; no getter returns the key. A file the store cannot read does not stop
 startup: OpenCode runs keyless, Settings reports the key as unreadable, and the file stays until the

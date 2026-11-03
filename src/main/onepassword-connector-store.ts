@@ -5,8 +5,8 @@ import { sourceText } from "@openbot/i18n/source";
 import { Effect, Result, Semaphore } from "effect";
 import { z } from "zod";
 import { writeJsonFileAtomically } from "../backend/atomic-json-file";
+import type { SecretCipher } from "../backend/provider-credential-store";
 import { OnePasswordOperationError, onePasswordCall, onePasswordDecode } from "./onepassword-effects";
-import type { SecretCipher } from "./provider-credential-store";
 
 const onePasswordConnectorRecordSchema = z.object({
   /** The service account token. It reads only the vaults that the user shared with OpenBot. */

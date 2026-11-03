@@ -12,3 +12,9 @@ provider, browser or scheduler is ready.
 Use a dedicated data directory. Do not adopt an existing desktop profile or change released
 database migrations. Close listeners before storage, and release the directory lock last.
 Keep the listener on loopback until authenticated application routes are implemented.
+
+`ServerCredentials` reads an external operator key file and owns the server cipher. Never generate
+a default key, store the master key in the data directory, or expose plaintext through status or
+HTTP replies. An unreadable credential store must fail startup before its write methods become
+available. Do not clear persisted credentials during shutdown. Provider ciphertext is bound to the
+provider identifier; other future stores need a separate context namespace.

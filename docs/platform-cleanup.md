@@ -49,6 +49,10 @@ All new workspaces and attachment directories remain under that directory. It do
 agent execution, providers, schedulers, the account service or the Web client. See
 [storage bootstrap](../README.md#independent-server-storage-bootstrap).
 
+The Node host can also load encrypted provider credentials with an operator-supplied key file.
+The shared credential store lives in `src/backend`; desktop callers still supply their original
+operating-system cipher. See [server credentials](../README.md#independent-server-credentials).
+
 Private Web hosting still needs local account-service storage and runtime adapters, private
 authentication, local connection-service configuration and an explicit outbound-data policy.
 Gitea, monitoring and CI/CD integration are separate work.

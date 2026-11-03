@@ -5,6 +5,7 @@ import { Schema } from "effect";
 const ServerOptions = Schema.Struct({
   dataDirectory: Schema.NonEmptyString,
   port: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 65535 })),
+  credentialKeyFile: Schema.optional(Schema.NonEmptyString),
 });
 
 export type ServerOptions = typeof ServerOptions.Type;
@@ -17,6 +18,9 @@ export class ServerStartupFailed extends Schema.TaggedError<ServerStartupFailed>
     "database",
     "agent-store",
     "mailbox-store",
+    "credential-key",
+    "credential-key-required",
+    "credential-store",
     "listener",
     "shutdown",
   ]),
@@ -24,7 +28,7 @@ export class ServerStartupFailed extends Schema.TaggedError<ServerStartupFailed>
 }) {}
 
 /** Decode command-line input once; no desktop profile is selected by default. */
-export function readServerOptions(args: string[]): ServerOptions {
+export function readServerOptions(args: string[], environment = process.env): ServerOptions {
   const { values } = parseArgs({
     args,
     options: {
@@ -37,6 +41,11 @@ export function readServerOptions(args: string[]): ServerOptions {
   const options = Schema.decodeUnknownSync(ServerOptions)({
     dataDirectory: values["data-dir"]?.trim(),
     port: Number(values.port),
+    credentialKeyFile: environment.OPSKAR_CREDENTIAL_KEY_FILE?.trim(),
   });
-  return { ...options, dataDirectory: resolve(options.dataDirectory) };
+  return {
+    ...options,
+    dataDirectory: resolve(options.dataDirectory),
+    ...(options.credentialKeyFile === undefined ? {} : { credentialKeyFile: resolve(options.credentialKeyFile) }),
+  };
 }

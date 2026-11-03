@@ -122,6 +122,7 @@ try {
     status: "ready",
     stage: "storage",
     schemaVersion: first.state.schemaVersion,
+    credentialStorage: "unconfigured",
   });
   assert.ok(first.state.schemaVersion > 0);
   assert.equal((await fetch(`${first.url}/v1/agents`, { signal: AbortSignal.timeout(5000) })).status, 404);

@@ -27,7 +27,7 @@ src/
   main/              Electron lifecycle, trusted IPC, host server, and operating-system adapters
   preload/           Narrow typed bridge from Electron main to the renderer
   renderer/          SolidJS user interface
-  server/            Independent Node entry; agent/mailbox storage and loopback readiness, without execution
+  server/            Independent Node entry; agent/mailbox storage, encrypted credentials and readiness, without execution
 scripts/             Development, smoke, release, and package verification entry points
 tools/               Biome GritQL rules, the UI foundation check, the vitest sequencer and setup, and the type baseline
 .agents/skills/      Task instructions for coding agents, such as release and smoke checks

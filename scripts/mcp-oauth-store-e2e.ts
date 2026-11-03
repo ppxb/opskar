@@ -24,8 +24,8 @@ import {
   mcpOAuthRecordSchema,
   normalizeResource,
 } from "../src/backend/mcp-oauth-provider";
+import type { SecretCipher } from "../src/backend/provider-credential-store";
 import { McpOAuthStore } from "../src/main/mcp-oauth-store";
-import type { SecretCipher } from "../src/main/provider-credential-store";
 
 const OUT = resolve(import.meta.dirname, "../.openbot-build/mcp-oauth-store-e2e");
 const NOTION = "https://mcp.notion.com/mcp";

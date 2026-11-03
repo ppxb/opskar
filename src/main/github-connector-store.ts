@@ -5,8 +5,8 @@ import { sourceText } from "@openbot/i18n/source";
 import { Effect, Result, Semaphore } from "effect";
 import { z } from "zod";
 import { writeJsonFileAtomically } from "../backend/atomic-json-file";
+import type { SecretCipher } from "../backend/provider-credential-store";
 import { GitHubOperationError, githubCall, githubDecode, toGitHubOperationError } from "./github-effects";
-import type { SecretCipher } from "./provider-credential-store";
 
 const githubConnectorRecordSchema = z.object({
   accessToken: z.string().min(1),

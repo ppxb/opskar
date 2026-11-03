@@ -10,7 +10,7 @@ import { z } from "zod";
 import { writeFileAtomically } from "../backend/atomic-json-file";
 import { causeHelpers } from "../backend/effect-boundary";
 import { type McpOAuthRecord, type McpOAuthStorage, mcpOAuthRecordSchema } from "../backend/mcp-oauth-provider";
-import type { SecretCipher } from "./provider-credential-store";
+import type { SecretCipher } from "../backend/provider-credential-store";
 
 const { io: mcpIO, sync: mcpSync } = causeHelpers(McpOperationError);
 

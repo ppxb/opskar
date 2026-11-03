@@ -8,6 +8,13 @@ service stores the minimum central data needed for email sign-in, account avatar
 configuration, memberships, invitations, logical sessions, and the account's product analytics
 answer.
 
+The independent Node host in `src/server` has separate provider credential storage. It reads an
+operator-supplied key file outside its data directory and uses AES-256-GCM to save encrypted values
+in `opskar-provider-credentials-v1.json`. The key is not generated, replaced or uploaded by the
+host. Decrypted values stay inside the process and are registered for log redaction. The readiness
+endpoint reports only whether credential storage is configured. This entry has no credential HTTP
+routes or provider execution yet. See [server credentials](README.md#independent-server-credentials).
+
 The optional browser client at `/app` connects to the computer that runs OpenBot. Conversation
 and attachment data travel through the existing encrypted host connection, not through the
 account Worker. The browser keeps chat pages, drafts, search results, and file previews in memory;

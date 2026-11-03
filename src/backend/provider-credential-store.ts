@@ -1,4 +1,4 @@
-// The optional API keys a provider CLI needs, encrypted at rest by the operating system.
+// The optional API keys a provider CLI needs, encrypted at rest by an injected cipher.
 
 import { readFile, rm } from "node:fs/promises";
 import type { AgentProviderId, ProviderApiKeyStatus } from "@openbot/contracts/ipc";
@@ -6,8 +6,8 @@ import { sourceText } from "@openbot/i18n/source";
 import { registerSecretValue } from "@openbot/logging";
 import { Effect, Result, Schema, Semaphore } from "effect";
 import { z } from "zod";
-import { writeFileAtomically } from "../backend/atomic-json-file";
-import { causeHelpers } from "../backend/effect-boundary";
+import { writeFileAtomically } from "./atomic-json-file";
+import { causeHelpers } from "./effect-boundary";
 
 export class CredentialStoreFailure extends Schema.TaggedError<CredentialStoreFailure>()("CredentialStoreFailure", {
   cause: Schema.Defect(),
@@ -31,8 +31,9 @@ const envelopeSchema = z.object({
 const MAX_ENVELOPE_BYTES = 64 * 1024;
 
 export interface SecretCipher {
-  encrypt: (value: string) => Buffer;
-  decrypt: (value: Buffer) => string;
+  /** Authenticated ciphers can bind a value to its record; legacy OS ciphers ignore this context. */
+  encrypt: (value: string, context?: string) => Buffer;
+  decrypt: (value: Buffer, context?: string) => string;
 }
 
 /**
@@ -158,7 +159,7 @@ export class ProviderCredentialStore {
       const envelope = envelopeSchema.parse(JSON.parse(source));
       const keys = new Map<string, string>();
       for (const [provider, encrypted] of Object.entries(envelope.credentials)) {
-        const key = this.#cipher.decrypt(Buffer.from(encrypted, "base64"));
+        const key = this.#cipher.decrypt(Buffer.from(encrypted, "base64"), provider);
         registerSecretValue(key);
         keys.set(provider, key);
       }
@@ -172,7 +173,8 @@ export class ProviderCredentialStore {
   ) {
     const content = yield* credentialSync(() => {
       const credentials: Record<string, string> = {};
-      for (const [provider, key] of keys) credentials[provider] = this.#cipher.encrypt(key).toString("base64");
+      for (const [provider, key] of keys)
+        credentials[provider] = this.#cipher.encrypt(key, provider).toString("base64");
       return `${JSON.stringify({ version: 1, credentials })}\n`;
     });
     yield* writeFileAtomically(this.#path, content, { createDirectory: true }).pipe(

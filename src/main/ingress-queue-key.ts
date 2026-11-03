@@ -13,7 +13,7 @@ import { createOpenBotLogger, registerSecretValue } from "@openbot/logging";
 import { Effect } from "effect";
 import { z } from "zod";
 import { writeFileAtomically } from "../backend/atomic-json-file";
-import type { SecretCipher } from "./provider-credential-store";
+import type { SecretCipher } from "../backend/provider-credential-store";
 
 const logger = createOpenBotLogger("ingress-queue-key");
 

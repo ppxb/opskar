@@ -64,7 +64,8 @@ It refuses existing desktop profiles before opening their database. Later starts
 server's owner marker and use an exclusive lock. Do not share the directory with Electron.
 
 The process prints its actual loopback address after both stores have initialized.
-`GET /health/ready` reports `stage: "storage"` and the database schema version.
+`GET /health/ready` reports `stage: "storage"`, the database schema version and
+`credentialStorage: "unconfigured" | "ready"`.
 Use `--port <port>` to choose a port. No application, account, agent, provider or scheduler routes
 are enabled. The Web client is not connected to this entry.
 The owner marker is not a replacement for database or credential migration.
@@ -97,6 +98,35 @@ databases under `.openbot-build/server-bootstrap/`. It never opens the desktop p
 directory isolation and initialization failure cleanup. Its artifacts are under
 `.openbot-build/server-storage/`.
 
+### Independent server credentials
+
+Set `OPSKAR_CREDENTIAL_KEY_FILE` to a private key file supplied by your secret manager or deployment
+system. The file must contain the canonical base64 encoding of 32 random bytes, with an optional
+trailing newline. It must be outside the server data directory, including after symbolic links
+are resolved. The server reads this file; it never generates, replaces or rotates it.
+
+On Linux, use a regular file readable only by the service user, such as mode `0400` or `0600`.
+On Windows, restrict its NTFS ACL to the service account; this implementation does not check ACLs.
+Keep the key separately from data backups. Existing ciphertext cannot be recovered without it.
+
+Without a configured key and without saved credentials, storage still starts and reports the
+credential capability as `unconfigured`. A configured key must be valid. Saved credentials with
+a missing or wrong key, an unreadable envelope, or failed authentication stop startup without
+replacing the file. `ready` means that credential storage is available, not that a provider has
+accepted a key or signed in.
+
+Provider keys use `opskar-provider-credentials-v1.json` in the data directory. This must be a
+regular file; a credential path that is a directory or symbolic link is refused. Each encrypted
+value uses AES-256-GCM with a fresh 12-byte nonce, a 16-byte tag, and a versioned header. Authentication
+binds the value to its provider identifier, so swapping encrypted provider entries is refused.
+This does not prevent deleting an entire entry or replaying older ciphertext for the same provider.
+Keep the data directory private. No credential read/write HTTP routes are provided yet.
+
+The shared store remains compatible with the desktop's existing envelope and operating-system
+cipher. The Node host uses its own file and does not import or decrypt desktop credentials.
+`bun run test:server-credentials` uses synthetic values and real Node processes. Its report is
+`.openbot-build/server-credentials/report.json`; no secret values enter the report.
+
 ## Commands
 
 | Command | Use |
@@ -106,6 +136,7 @@ directory isolation and initialization failure cleanup. Its artifacts are under
 | `bun run server:dev --data-dir <directory>` | Start the independent storage bootstrap on loopback. |
 | `bun run test:server-bootstrap` | Check the Node bootstrap, shutdown and data preservation. |
 | `bun run test:server-storage` | Check agent and queue persistence without starting execution. |
+| `bun run test:server-credentials` | Check encrypted credentials, restart, corruption and redaction. |
 | `bun run dev:status` | Show this checkout's development processes. |
 | `bun run dev:stop` | Stop this checkout's development stack. |
 | `bun run typecheck:node` | Check host, backend, preload and script types. |

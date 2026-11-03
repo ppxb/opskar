@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { Context, Effect, Layer } from "effect";
+import { ServerCredentials } from "./server-credentials";
 import { type ServerOptions, ServerStartupFailed } from "./server-options";
 import { ServerStorage } from "./server-storage";
 
@@ -29,14 +30,16 @@ function closeListener(server: Server): Promise<void> {
 }
 
 /** Storage bootstrap only. Agent, provider, scheduler and account services are not started. */
-export class ServerRuntime extends Context.Service<ServerRuntime, { port: number; schemaVersion: number }>()(
-  "opskar/ServerRuntime",
-) {
+export class ServerRuntime extends Context.Service<
+  ServerRuntime,
+  { port: number; schemaVersion: number; credentialStorage: "ready" | "unconfigured" }
+>()("opskar/ServerRuntime") {
   static layer(options: ServerOptions) {
     return Layer.effect(
       ServerRuntime,
       Effect.gen(function* () {
         const { schemaVersion } = yield* ServerStorage;
+        const { status: credentialStorage } = yield* ServerCredentials;
         const server = yield* Effect.acquireRelease(
           Effect.sync(() =>
             createServer((request, response) => {
@@ -46,7 +49,11 @@ export class ServerRuntime extends Context.Service<ServerRuntime, { port: number
                 "Cache-Control": "no-store",
               });
               response.end(
-                JSON.stringify(ready ? { status: "ready", stage: "storage", schemaVersion } : { error: "not-found" }),
+                JSON.stringify(
+                  ready
+                    ? { status: "ready", stage: "storage", schemaVersion, credentialStorage }
+                    : { error: "not-found" },
+                ),
               );
             }),
           ),
@@ -60,8 +67,8 @@ export class ServerRuntime extends Context.Service<ServerRuntime, { port: number
           try: (signal) => listen(server, options.port, signal),
           catch: (cause) => new ServerStartupFailed({ code: "listener", cause }),
         });
-        return { port, schemaVersion };
+        return { port, schemaVersion, credentialStorage };
       }),
-    ).pipe(Layer.provideMerge(ServerStorage.layer(options)));
+    ).pipe(Layer.provideMerge(ServerCredentials.layer(options).pipe(Layer.provideMerge(ServerStorage.layer(options)))));
   }
 }

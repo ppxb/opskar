@@ -27,6 +27,7 @@ import { Effect, Semaphore } from "effect";
 import { RoutineOperationFailed } from "../backend/agent/routine-scheduler";
 import type { WebhookRoutineWriter } from "../backend/agent/webhook-routine-tool";
 import { causeHelpers } from "../backend/effect-boundary";
+import type { SecretCipher } from "../backend/provider-credential-store";
 import type { RoutineRecords } from "../backend/routine-records";
 import type { OwnedRoutineRecord, RoutineRecordInput, WebhookReceiveResult } from "../backend/routine-store";
 import type { WebhookRouteOwner } from "../backend/webhook-route-store";
@@ -38,7 +39,6 @@ import {
   hostEventsFailureMessage,
   WebhookRouteConflict,
 } from "./host-events-api";
-import type { SecretCipher } from "./provider-credential-store";
 import type { WebhookIngressDelivery } from "./signal-ingress";
 import { signWebhookBody, verifyWebhookSignature } from "./webhook-security";
 

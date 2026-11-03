@@ -18,7 +18,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { registerSecretValue } from "@openbot/logging";
 import { AgentLifecycleFailed, type AgentService } from "../../backend/agent-service";
 import { runCauseEffect } from "../../backend/effect-boundary";
-import type { ProviderCredentialStore } from "../provider-credential-store";
+import type { ProviderCredentialStore } from "../../backend/provider-credential-store";
 import type { ProviderRuntimeManager } from "../provider-runtime-manager";
 import { parseProviderId } from "./app-inputs";
 import { handler, type IpcGroupHandlers, payloadHandler } from "./define-ipc-group";

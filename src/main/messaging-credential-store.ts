@@ -12,7 +12,7 @@ import { z } from "zod";
 import { writeFileAtomically } from "../backend/atomic-json-file";
 import { causeHelpers } from "../backend/effect-boundary";
 import { type MessagingCredentials, MessagingOperationFailed } from "../backend/messaging/messaging-service";
-import type { SecretCipher } from "./provider-credential-store";
+import type { SecretCipher } from "../backend/provider-credential-store";
 
 const { io: messagingIO, sync: messagingSync } = causeHelpers(MessagingOperationFailed);
 

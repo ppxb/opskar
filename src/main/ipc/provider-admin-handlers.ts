@@ -69,8 +69,8 @@ import { sourceText } from "@openbot/i18n/source";
 import { normalizePastedCode } from "../../backend/agent/cli-code-login";
 import { AgentLifecycleFailed, type AgentService } from "../../backend/agent-service";
 import { runCauseEffect } from "../../backend/effect-boundary";
+import type { ProviderCredentialStore } from "../../backend/provider-credential-store";
 import type { PeerCustomProviderChanges } from "../custom-provider-changes";
-import type { ProviderCredentialStore } from "../provider-credential-store";
 import type { ProviderRuntimeManager } from "../provider-runtime-manager";
 import {
   decodeAgentStatusFromHost,

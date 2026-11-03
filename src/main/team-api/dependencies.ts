@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { ChannelService } from "../../backend/channel-service";
+import type { ProviderCredentialStore } from "../../backend/provider-credential-store";
 import type { AcpRegistry } from "../acp-registry";
 import type { AgentAccessStore } from "../agent-access-store";
 import type { AgentAdminSettingsService } from "../agent-admin-settings";
@@ -21,7 +22,6 @@ import type { MachineAlertMonitor } from "../machine-alerts";
 import type { MemoryReviewPreferenceStore } from "../memory-review-preference-store";
 import type { PreferenceFileFailure } from "../preference-file";
 import type { PromptCacheTtlPreferenceStore } from "../prompt-cache-ttl-preference-store";
-import type { ProviderCredentialStore } from "../provider-credential-store";
 import type { ProviderRuntimeManager } from "../provider-runtime-manager";
 import type { RemoteWorkflowError } from "../remote-service-effects";
 import type { RequestedUpdate } from "../requested-update";

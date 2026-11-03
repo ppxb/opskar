@@ -8,7 +8,7 @@ import { Effect, Result, Schema, Semaphore } from "effect";
 import { writeJsonFileAtomically } from "../backend/atomic-json-file";
 import { causeHelpers } from "../backend/effect-boundary";
 import { PasswordVaultError } from "../backend/password-vault";
-import type { SecretCipher } from "./provider-credential-store";
+import type { SecretCipher } from "../backend/provider-credential-store";
 
 const { io: vaultCall, sync: vaultDecode } = causeHelpers(PasswordVaultError);
 

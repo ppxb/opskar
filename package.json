@@ -82,6 +82,7 @@
     "server:dev": "node --import tsx src/server/index.ts",
     "test:server-bootstrap": "node --import tsx scripts/server-bootstrap-e2e.ts",
     "test:server-storage": "node --import tsx scripts/server-storage-e2e.ts",
+    "test:server-credentials": "node --import tsx scripts/server-credentials-e2e.ts",
     "postinstall": "bun scripts/electron-dist-cache.ts restore && bun scripts/install-electron.ts && bun scripts/electron-dist-cache.ts save && bun scripts/stamp-install.ts",
     "api:start": "bun run --cwd apps/auth-api start",
     "api:build": "bun run --cwd apps/auth-api build",

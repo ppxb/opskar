@@ -3,8 +3,8 @@ import { Effect, Result } from "effect";
 import { z } from "zod";
 import { McpOperationError } from "../backend/mcp-effects";
 import type { McpOAuthProxySettings, McpOAuthProxySettingsStore } from "../backend/mcp-oauth-proxy";
+import type { SecretCipher } from "../backend/provider-credential-store";
 import { readPreferenceFile, writePreferenceFile } from "./preference-file";
-import type { SecretCipher } from "./provider-credential-store";
 
 const storedSettingsSchema = z.object({ version: z.literal(1), value: z.string() });
 const settingsSchema = z.object({
