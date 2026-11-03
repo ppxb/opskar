@@ -16,8 +16,8 @@ have more than one group:
 
 `bun run release:patch`, `release:minor` and `release:major` move the items of every file into the
 new version section of `CHANGELOG.md`, in the order that the pull requests merged, and delete the
-files. The pre-commit hook and the Changelog workflow check each file. A pull request with no change
-that a user can see gets the `no-changelog` label.
+files. Check a fragment with `bun scripts/check-release-notes.ts --fragments <path>`. A pull request
+with no change that a user can see gets the `no-changelog` label.
 
 The mobile client is no longer built from this checkout. Its historical notes remain in
 [mobile-changelog.md](../docs/archive/mobile-changelog.md).

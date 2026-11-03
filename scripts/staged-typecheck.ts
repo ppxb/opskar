@@ -4,8 +4,8 @@
 //   bun scripts/staged-typecheck.ts --dry-run [<path>...]  prints the selection and runs nothing;
 //                                                          paths replace the index
 //
-// The pre-commit hook calls this. `bun run typecheck` starts all projects at the same time; that
-// takes about 8 GB of memory, and several worktrees can commit at once. CI still checks every project.
+// This is a manual tool. Inspect the selection with --dry-run; use focused project commands for
+// routine local checks. No Git hook calls this script.
 //
 // A project can see a file when one of these is true:
 // - its tsconfig `include` matches the file's folder;

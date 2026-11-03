@@ -116,14 +116,11 @@ as a routine completion or PR step.
    unverified.
 4. Do not run `bun run format`: it rewrites the whole repository. Use
    `biome check --write --max-diagnostics=none <paths>` for changed files.
-5. The pre-commit hook (`.githooks/pre-commit`) runs `check:staged`, `check:ui`, and
-   `scripts/staged-typecheck.ts` when the commit stages code. The script runs, one at a time, only
-   the `typecheck:*` projects that can see a staged file; a root `package.json`, `tsconfig*.json` or
-   `bun.lock` selects all of them. `--dry-run [<path>...]` shows the selection. This is the only
-   exception to rule 3. Do not run these checks by hand, and do not bypass the hook with
-   `--no-verify`. The hook also runs the schema parity test when a database schema file in
-   `src/backend` is staged. It stops the commit if Biome fixes a file that also has unstaged
-   changes; stage the fixes you want and commit again.
+5. The developer removed automatic pre-commit checks. Do not install or restore Git hooks.
+   Commits do not run checks or change staging. Run the focused checks in rules 1-4 explicitly;
+   keep broader checks in CI. Manual commands such as `check:staged` and
+   `scripts/staged-typecheck.ts` remain available. The latter's `--dry-run [<path>...]` shows its
+   selection without running checks. Required migration and security tests still apply.
 
 [Check design notes](docs/development-checks.md#check-coverage) explain CI coverage, command aliases,
 and the separate Node and Bun type environments. Read them when changing checks or dependencies.

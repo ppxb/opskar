@@ -121,6 +121,8 @@ directory isolation and initialization failure cleanup. Its artifacts are under
 
 Build and package commands are not routine checks. Run only focused checks locally, one at a
 time. The historical `desktop` check names also cover code that the Linux host needs.
+Git commits do not run repository hooks. Dependency installation does not install hooks;
+run the required checks explicitly.
 See [check design notes](docs/development-checks.md).
 
 ## Repository structure

@@ -404,8 +404,8 @@ notes of a change to the iPhone app in `apps/mobile/changelog.d/<branch>.md`, wi
 A change to the desktop app or the web client and the iPhone app gets one file in each folder.
 `bun run mobile:release:patch`, `mobile:release:minor` and `mobile:release:major` move these files
 into `apps/mobile/CHANGELOG.md` and set the version in `apps/mobile/app.json`,
-`apps/mobile/package.json` and the copy of it in `bun.lock`. The pre-commit hook checks the new section when a commit changes the
-`app.json` version. The new section is `## [x.y.z] - In review`, and `/changelog` does not show it
+`apps/mobile/package.json` and the copy of it in `bun.lock`. The new section is
+`## [x.y.z] - In review`, and `/changelog` does not show it
 until a store makes the build available. Each store reviews the build on its own. When one store has
 it, `bun run mobile:release:published ios` (or `android`) writes the date of that store, such as
 `## [x.y.z] - 2026-10-14 (Android)`. Run it again for the other store:
@@ -423,8 +423,8 @@ group, a placeholder such as `TODO`, or a heading with no real date. These steps
 
 - `bun run release:patch`, `release:minor` and `release:major` check the new section before they
   write it. They stop, and delete no file, when a line is not in an item.
-- The pre-commit hook checks each staged `changelog.d` file with `--fragments`, and the staged
-  `CHANGELOG.md` when a commit changes the `package.json` version.
+- Run `bun scripts/check-release-notes.ts --fragments <path>` to check a release-note fragment.
+  Use `bun scripts/check-release-notes.ts --staged` to check a staged version change.
 - The `Changelog` workflow checks each `changelog.d` file. It fails a pull request that adds no
   `changelog.d` file and does not change `CHANGELOG.md`, unless the pull request has the
   `no-changelog` label. Use the label when a user sees no change.

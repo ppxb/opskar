@@ -60,39 +60,34 @@ that does not exist, and on a `#anchor` that the target file has no heading or `
 anchors the way GitHub does. It does not check web links or links to other file types. When you move
 a section to another file, such as one in `docs/architecture/`, update each link to its anchor.
 
-The pre-commit hook in `.githooks/pre-commit` runs `check:staged`, then `check:ui` and
-`scripts/staged-typecheck.ts`. The last two run only when the commit stages code, style, GritQL,
-`tsconfig*.json`, `package.json`, `biome.json` or `bun.lock` files, so a commit
-of only text or data JSON is fast.
+This checkout has no automatic pre-commit hook. Dependency installation does not change Git's
+hook configuration. Run focused checks explicitly; commits do not format files, change staging
+or start tests. Migration and security changes still need their required checks.
 
-`scripts/staged-typecheck.ts` reads the root `typecheck:*` scripts and selects each project that can
+The optional manual tool `scripts/staged-typecheck.ts` reads the root `typecheck:*` scripts and selects each project that can
 see a staged file: the file is under a fixed part of the project's tsconfig `include`, in its
 workspace package, in a workspace package that it depends on (also through other workspace
 packages), or in a folder that it imports through a relative path. That last list is in the script:
-`scripts` imports mobile and account Worker modules, the account Worker imports the site router, a
+`scripts` imports account Worker modules, the account Worker imports the site router, a
 renderer story imports a preload helper, and `.storybook/preview.tsx` imports the renderer.
-A root `tsconfig*.json`, `package.json` or `bun.lock` selects all projects. A mobile codegen input,
-such as `app.json` or the brand CSS, selects mobile. `biome.json` and GritQL files select no project:
+A root `tsconfig*.json`, `package.json` or `bun.lock` selects all projects. `biome.json` and GritQL files select no project:
 TypeScript does not read them. The script runs the projects one at a time and reports each one that
 fails. `--dry-run` prints each selected script with the path that selected it; paths after the flag
 replace the index. A JSON file that a module imports, such as a Team API fixture, does not start a
-type check in the hook; CI checks it.
+type check through this tool; CI checks it.
 
 The mobile code generation and typecheck hooks have been removed with the client.
 
-In CI, `check:desktop:static` (the UI check, lint, desktop typecheck, build and preload check) takes
-about a minute, and each other typecheck takes a few seconds. When `openbot-database-schema.ts`, `channel-schema.ts`, `mcp-schema.ts`, the parity test or
-`openbot-database-schema-history.json` is staged, the hook also runs `src/backend/openbot-database-schema-parity.test.ts`.
+In CI, `check:desktop:static` includes the UI check, lint, desktop typecheck, build and preload check.
+For database schema changes, run the schema parity test and the affected migration tests explicitly,
+as `src/backend/AGENTS.md` requires.
 
-`check:staged` lets Biome fix the working-tree copy of each staged file, and the hook then stages
-those files again. It stages again only the files that have no unstaged changes; otherwise the commit
-would also take the author's unstaged edits. When Biome changes a file that is only partly staged,
-the hook stops the commit and names the file.
+The manual `check:staged` command lets Biome fix the working-tree copy of each staged file. It does
+not stage those fixes. Review the working-tree diff and stage only the changes you intend to commit.
 
 One project typecheck, such as `typecheck:node` or `typecheck:renderer`, takes under 10 seconds and
 less than 1.5 GB of memory. The load that the check rules prevent comes from the aggregate command,
-which starts all projects at the same time. The hook used it until it selected projects: about
-33 CPU-seconds and 8 GB of memory for each commit of code.
+which starts all projects at the same time. Do not use that aggregate command for routine local checks.
 
 The source of truth for CI is [.github/workflows/ci.yml](../.github/workflows/ci.yml).
 Its main jobs are:
