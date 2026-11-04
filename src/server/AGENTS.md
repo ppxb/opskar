@@ -21,7 +21,15 @@ cursor checks. Redact display fields before enforcing their output length limits
 Keep its loopback binding and exact Host/Origin checks. Provider operations must validate the
 operator session in the domain. Never return saved secrets or raw upstream errors. Keep both
 configured and physical secret/data paths outside Vite file serving. Dispose requests before keys
-and stores. This console does not provide agent execution or a production asset server.
+and stores. This console is not a production asset server.
+
+`--execute` additionally requires an explicit OpenCode 2 executable. `server-agent` owns the
+AgentService lifecycle; it reuses initialized stores and keeps browser, scheduled/channel work
+and interactive prompts disabled. Preserve queued data when a Provider is corrected. Do not
+replace the existing send/idempotency/recovery machinery. `server-opencode` owns the isolated
+OpenCode service; stop clients before the service, and the service before closing storage.
+Execution tools use the server OS account and the existing Full access policy. SSE carries only
+revision notices, closes on session expiry/revocation and never sends raw AgentEvent payloads.
 
 `ServerCredentials` reads an external operator key file and owns the server cipher. Never generate
 a default key, store the master key in the data directory, or expose plaintext through status or

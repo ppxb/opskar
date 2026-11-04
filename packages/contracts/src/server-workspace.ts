@@ -1,6 +1,8 @@
 import { Schema } from "effect";
-import type { ClientAgentSummary, ConversationPage, SidebarLayoutSnapshot } from "./ipc";
+import { INPUT_LIMITS } from "./input-limits";
+import type { AvatarHue, ClientAgentSummary, ConversationPage, SidebarLayoutSnapshot } from "./ipc";
 import {
+  isAvatarHue,
   isClientAgentSummary,
   isConversationMessage,
   isConversationWithReadState,
@@ -9,10 +11,18 @@ import {
 import { isDynamicRecord } from "./runtime-values";
 
 /** The Node workspace has its own identity. It is not a cloud account or a remote Team host. */
+export const LocalExecutionState = Schema.Struct({
+  state: Schema.Literals(["disabled", "unconfigured", "starting", "ready", "error"]),
+  message: Schema.NullOr(Schema.String),
+  model: Schema.NullOr(Schema.String),
+});
+export type LocalExecutionState = typeof LocalExecutionState.Type;
+
 export const LocalWorkspaceSnapshot = Schema.Struct({
   workspaceId: Schema.NonEmptyString,
   name: Schema.NonEmptyString,
-  mode: Schema.Literal("read-only"),
+  mode: Schema.Literals(["read-only", "interactive"]),
+  execution: LocalExecutionState,
   agents: Schema.Array(Schema.declare<ClientAgentSummary>(isClientAgentSummary)),
   sidebarLayout: Schema.declare<SidebarLayoutSnapshot>(isSidebarLayoutSnapshot),
 });
@@ -46,3 +56,21 @@ export const LocalConversationInput = Schema.Struct({
   before: Schema.optional(Schema.NonEmptyString.check(Schema.isMaxLength(4096), Schema.isPattern(/^[A-Za-z0-9_-]+$/u))),
 });
 export type LocalConversationInput = typeof LocalConversationInput.Type;
+
+const Identifier = Schema.NonEmptyString.check(Schema.isMaxLength(128), Schema.isPattern(/^[A-Za-z0-9_-]+$/u));
+export const LocalAgentCreateInput = Schema.Struct({
+  name: Schema.NonEmptyString.check(Schema.isMaxLength(INPUT_LIMITS.agentName), Schema.isPattern(/\S/u)),
+  description: Schema.String.check(Schema.isMaxLength(INPUT_LIMITS.agentDescription)),
+  avatarSeed: Schema.NonEmptyString.check(Schema.isPattern(/^[a-z0-9:-]{1,128}$/u)),
+  avatarHue: Schema.NullOr(Schema.declare<AvatarHue>(isAvatarHue)),
+});
+export type LocalAgentCreateInput = typeof LocalAgentCreateInput.Type;
+export const LocalAgentCreateResult = Schema.Struct({ agentId: Identifier });
+export const LocalMessageInput = Schema.Struct({
+  text: Schema.NonEmptyString.check(Schema.isMaxLength(INPUT_LIMITS.messageText), Schema.isPattern(/\S/u)),
+  clientMessageId: Identifier,
+});
+export type LocalMessageInput = typeof LocalMessageInput.Type;
+export const LocalMessageReceipt = Schema.Struct({ messageId: Identifier });
+export const LocalStopInput = Schema.Struct({ turnId: Identifier });
+export type LocalStopInput = typeof LocalStopInput.Type;

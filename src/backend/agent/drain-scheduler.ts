@@ -122,6 +122,8 @@ function laneOf(key: string): Lane {
 const mainLane = (agentId: string): Lane => ({ agentId, taskId: null });
 
 export interface DrainSchedulerOptions {
+  /** Leave routine and channel deliveries queued when scheduled execution is disabled. */
+  automation?: "enabled" | "disabled";
   store: AgentStore;
   mailbox: MailboxStore;
   mailboxSync: MailboxSync;
@@ -155,6 +157,7 @@ export interface DrainSchedulerOptions {
  * `ThreadLifecycle` directly — thread recovery is a dependency, not a hook.
  */
 export class DrainScheduler {
+  readonly #automationEnabled: boolean;
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
   readonly #mailboxSync: MailboxSync;
@@ -203,6 +206,7 @@ export class DrainScheduler {
   readonly #drainTasks = new Map<string, Deferred.Deferred<void, DeliveryStartFailed>>();
 
   constructor(options: DrainSchedulerOptions) {
+    this.#automationEnabled = options.automation !== "disabled";
     this.#store = options.store;
     this.#mailbox = options.mailbox;
     this.#mailboxSync = options.mailboxSync;
@@ -237,14 +241,18 @@ export class DrainScheduler {
         return (
           this.#mayStartNow(lane) &&
           this.#memory.mayDrain(lane.agentId) &&
-          this.#mailbox.nextQueued(lane.agentId, lane.taskId) !== null
+          this.#nextQueued(lane.agentId, lane.taskId) !== null
         );
       },
       head: (key) => {
         const lane = laneOf(key);
-        return this.#mailbox.nextQueued(lane.agentId, lane.taskId)?.delivery ?? null;
+        return this.#nextQueued(lane.agentId, lane.taskId)?.delivery ?? null;
       },
     });
+  }
+
+  #nextQueued(agentId: string, taskId: string | null = null): DeliveryContext | null {
+    return this.#mailbox.nextQueued(agentId, taskId, this.#automationEnabled);
   }
 
   /** The clauses of this agent's own state. `#heldByMachine` adds the memory and the turn slots. */
@@ -326,15 +334,15 @@ export class DrainScheduler {
     if (
       agent &&
       this.#providers.signInRequired(providerForAgent(agent)) &&
-      this.#waitsForSignIn(this.#mailbox.nextQueued(agentId, taskId)?.delivery)
+      this.#waitsForSignIn(this.#nextQueued(agentId, taskId)?.delivery)
     )
       return "sign-in";
     // Channel work holds only the agent's own chat. Its tasks run beside a channel turn.
-    if (taskId === null && !(this.#channels?.mayDrain(agentId) ?? true)) return "channel";
+    if (this.#automationEnabled && taskId === null && !(this.#channels?.mayDrain(agentId) ?? true)) return "channel";
     if (!this.#profileSave.mayDrain(agentId)) return "profile-save";
     if (!this.#duplication.mayDrain(agentId)) return "duplication";
     if (this.#compactionHolds(lane)) return "compaction";
-    if (!this.#routines.mayDrain(agentId)) return "routine";
+    if (this.#automationEnabled && !this.#routines.mayDrain(agentId)) return "routine";
     if (!this.#usageLimits.mayDrain(agentId) && !this.#usageLimits.mayTry(agentId)) return "usage-limit";
     return null;
   }
@@ -345,7 +353,7 @@ export class DrainScheduler {
    */
   #reportHold(lane: Lane, reason: string): void {
     const key = laneKey(lane);
-    if (this.#reportedHolds.get(key) === reason || !this.#mailbox.nextQueued(lane.agentId, lane.taskId)) return;
+    if (this.#reportedHolds.get(key) === reason || !this.#nextQueued(lane.agentId, lane.taskId)) return;
     this.#reportedHolds.set(key, reason);
     const working =
       reason === "active-turn" && lane.taskId === null ? this.#conversation.workingSnapshot(lane.agentId) : undefined;
@@ -360,7 +368,7 @@ export class DrainScheduler {
   /** Why the next message of this task waits, or null when it can start or nothing waits. */
   taskHold(agentId: string, taskId: string): string | null {
     const lane = { agentId, taskId };
-    if (!this.#mailbox.nextQueued(agentId, taskId)) return null;
+    if (!this.#nextQueued(agentId, taskId)) return null;
     return this.#heldBy(lane) ?? (this.#slotWaiters.has(laneKey(lane)) ? "machine" : null);
   }
 
@@ -398,7 +406,7 @@ export class DrainScheduler {
    */
   #scheduleTasks(agentId: string): void {
     for (const taskId of this.#mailbox.queuedTaskIds(agentId))
-      if (this.#mailbox.nextQueued(agentId, taskId)) this.#scheduleLane({ agentId, taskId }, false);
+      if (this.#nextQueued(agentId, taskId)) this.#scheduleLane({ agentId, taskId }, false);
   }
 
   /** True when a move for a usage limit started: the move schedules the agent again when it ends. */
@@ -477,7 +485,7 @@ export class DrainScheduler {
    */
   #heldByMachine(lane: Lane): boolean {
     if (!this.#memory.mayDrain(lane.agentId)) {
-      if (this.#mailbox.nextQueued(lane.agentId, lane.taskId)) this.#memory.held(lane.agentId);
+      if (this.#nextQueued(lane.agentId, lane.taskId)) this.#memory.held(lane.agentId);
       return true;
     }
     const key = laneKey(lane);
@@ -525,7 +533,7 @@ export class DrainScheduler {
     this.#drainingLanes.add(key);
     yield* Effect.gen({ self: this }, function* () {
       if (this.#laneTurnActive(lane)) return;
-      const context = this.#mailbox.nextQueued(agentId, taskId);
+      const context = this.#nextQueued(agentId, taskId);
       if (!context) {
         // Here, so that a message that arrives during the new chat waits for this drain to end.
         if (taskId === null) yield* this.#hooks.startRequestedNewChat(agentId);
@@ -572,8 +580,7 @@ export class DrainScheduler {
       Effect.ensuring(
         Effect.sync(() => {
           this.#drainingLanes.delete(key);
-          if (this.#requeuedAtLimit.delete(agentId) || this.#mailbox.nextQueued(agentId))
-            this.#scheduleLane(mainLane(agentId));
+          if (this.#requeuedAtLimit.delete(agentId) || this.#nextQueued(agentId)) this.#scheduleLane(mainLane(agentId));
           // Every task too: this lane can have held another one for the task limit or the process.
           this.#scheduleTasks(agentId);
           this.retrySlotWaiters();

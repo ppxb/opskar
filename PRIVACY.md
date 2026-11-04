@@ -33,6 +33,15 @@ Known secrets are redacted in HTTP replies without changing saved records. Attac
 URLs are not sent by this view, and Markdown images and link icons do not load automatically.
 Opening an ordinary Web link remains an explicit browser action.
 
+With the explicit `--execute` option, the local workspace sends user messages and Agent context to
+the configured OpenAI-compatible endpoint through OpenCode. That context can include workspace
+files and tool results needed for the task. OpenCode runs under the server account and keeps its
+own state under the server data directory. Its child environment does not inherit unrelated
+shell credentials. The application stores accepted messages and execution results locally; the
+browser receives redacted text. The event stream carries only revision notices and session-end
+notifications. Logout and expiry close the stream. Accepted server work can continue after logout;
+use Stop agent to interrupt a turn. This mode does not use cloud accounts, Signal or analytics.
+
 The optional browser client at `/app` connects to the computer that runs OpenBot. Conversation
 and attachment data travel through the existing encrypted host connection, not through the
 account Worker. The browser keeps chat pages, drafts, search results, and file previews in memory;

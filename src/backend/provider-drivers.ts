@@ -568,6 +568,8 @@ export interface BuiltInProviderDriver {
   /** Absent for a provider whose `model/list` needs no special reading. */
   catalog?: ProviderModelCatalog;
   resolveCli(options?: {
+    /** Explicit candidates replace PATH and environment discovery. */
+    systemCandidates?: string[];
     bundledExecutable?: string | null | undefined;
   }): Effect.Effect<AgentCliInfo, ProviderClientOperationError>;
   createClient(

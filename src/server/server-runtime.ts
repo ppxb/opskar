@@ -30,7 +30,7 @@ function closeListener(server: Server): Promise<void> {
   });
 }
 
-/** Storage and optional local Provider console. Agent and scheduler services are not started. */
+/** Storage, optional Web UI, and explicitly enabled Agent execution. Scheduling stays disabled. */
 export class ServerRuntime extends Context.Service<
   ServerRuntime,
   { port: number; schemaVersion: number; credentialStorage: "ready" | "unconfigured" }

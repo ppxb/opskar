@@ -8,6 +8,8 @@ const ServerOptions = Schema.Struct({
   credentialKeyFile: Schema.optional(Schema.NonEmptyString),
   web: Schema.optional(Schema.Boolean),
   webPasswordFile: Schema.optional(Schema.NonEmptyString),
+  execute: Schema.optional(Schema.Boolean),
+  opencodePath: Schema.optional(Schema.NonEmptyString),
 });
 
 export type ServerOptions = typeof ServerOptions.Type;
@@ -27,6 +29,7 @@ export class ServerStartupFailed extends Schema.TaggedError<ServerStartupFailed>
     "web-password",
     "web-console",
     "workspace",
+    "agent-runtime",
     "listener",
     "shutdown",
   ]),
@@ -41,6 +44,8 @@ export function readServerOptions(args: string[], environment = process.env): Se
       "data-dir": { type: "string" },
       port: { type: "string", default: "0" },
       web: { type: "boolean", default: false },
+      execute: { type: "boolean", default: false },
+      "opencode-path": { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -51,11 +56,17 @@ export function readServerOptions(args: string[], environment = process.env): Se
     credentialKeyFile: environment.OPSKAR_CREDENTIAL_KEY_FILE?.trim(),
     web: values.web,
     webPasswordFile: environment.OPSKAR_WEB_PASSWORD_FILE?.trim(),
+    execute: values.execute,
+    opencodePath: values["opencode-path"]?.trim(),
   });
+  if (options.execute && (!options.web || !options.opencodePath)) {
+    throw new Error("Execution needs --web and --opencode-path <executable>.");
+  }
   return {
     ...options,
     dataDirectory: resolve(options.dataDirectory),
     ...(options.credentialKeyFile === undefined ? {} : { credentialKeyFile: resolve(options.credentialKeyFile) }),
     ...(options.webPasswordFile === undefined ? {} : { webPasswordFile: resolve(options.webPasswordFile) }),
+    ...(options.opencodePath === undefined ? {} : { opencodePath: resolve(options.opencodePath) }),
   };
 }

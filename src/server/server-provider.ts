@@ -5,6 +5,7 @@ import { ProviderInput, type ProviderState } from "@openbot/contracts/server-con
 import { redactText, registerSecretValue } from "@openbot/logging";
 import { Effect, Option, Schema, Semaphore } from "effect";
 import { writeJsonFileAtomically } from "../backend/atomic-json-file";
+import type { CustomProviderConfig } from "../backend/opencode-config";
 import type { ConsoleAuth } from "./server-console-auth";
 import { ConsoleFailure } from "./server-console-error";
 import { ServerCredentials } from "./server-credentials";
@@ -12,6 +13,7 @@ import { ServerStartupFailed } from "./server-options";
 import { ServerStorage } from "./server-storage";
 
 export const SERVER_PROFILE_FILE = "opskar-openai-profile-v1.json";
+export const LOCAL_PROVIDER_ID = "opskar-local";
 const PROFILE_CONTEXT = "opskar/openai-profile/v1";
 const Profile = Schema.Struct({ ...ProviderInput.fields, apiKey: Schema.String.check(Schema.isMaxLength(8192)) });
 type Profile = typeof Profile.Type;
@@ -69,7 +71,7 @@ async function completionText(response: Response): Promise<string> {
   }
 }
 
-/** A saved endpoint and a fixed connection test. No agent or CLI runtime is started. */
+/** Owns the saved endpoint and connection test; the Agent service reads its internal configuration. */
 export const acquireProviderConsole = Effect.fn("acquireProviderConsole")(function* (auth: ConsoleAuth) {
   const credentials = yield* ServerCredentials;
   const { paths } = yield* ServerStorage;
@@ -200,5 +202,19 @@ export const acquireProviderConsole = Effect.fn("acquireProviderConsole")(functi
     if (Option.isNone(result)) return yield* new ConsoleFailure({ code: "busy" });
     return result.value;
   });
-  return { get, save, test };
+  const configuration = (): CustomProviderConfig | null =>
+    profile
+      ? {
+          id: LOCAL_PROVIDER_ID,
+          name: profile.baseUrl,
+          baseUrl: profile.baseUrl,
+          apiKey: profile.apiKey || null,
+          models: [{ id: profile.model, name: profile.model, contextWindow: 32768, maxOutput: 4096 }],
+          headers: [],
+          harness: "opencode",
+        }
+      : null;
+  return { get, save, test, configuration };
 });
+
+export type ServerProviderConsole = Effect.Success<ReturnType<typeof acquireProviderConsole>>;

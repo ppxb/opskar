@@ -1,6 +1,25 @@
 import { defineMessages } from "../../message";
 
 export const messages = defineMessages("settings", {
+  "settings.workspace.interactive": "Agent workspace",
+  "settings.workspace.newAgent": "New agent",
+  "settings.workspace.ready": "Ready · {model}",
+  "settings.workspace.starting": "Starting agent runtime…",
+  "settings.workspace.unconfigured": "Configure a Provider before you create an agent or send a message.",
+  "settings.workspace.executionError": "Agent execution is unavailable. Check the server and try again.",
+  "settings.workspace.agentModelUnavailable":
+    "This agent uses {provider} / {model}. This server currently supports OpenCode / {available}.",
+  "settings.workspace.message": "Message",
+  "settings.workspace.messagePlaceholder": "Ask the agent to work in its workspace…",
+  "settings.workspace.send": "Send message",
+  "settings.workspace.textOnly": "Text messages · Enter to send · Shift+Enter for a new line",
+  "settings.workspace.agentRunning": "Agent running",
+  "settings.workspace.createFailed": "Agent creation could not be confirmed.",
+  "settings.workspace.checkCreatedAgent": "Check the agent list before you retry.",
+  "settings.workspace.sendFailed":
+    "Message delivery could not be confirmed. Your draft is kept. Retry to check the same message.",
+  "settings.workspace.stopFailed": "The agent could not be stopped. Try again.",
+  "settings.workspace.updatesFailed": "Live updates are disconnected. Refresh to check the latest state.",
   "settings.workspace.title": "Local workspace",
   "settings.workspace.readOnly": "Read-only workspace",
   "settings.workspace.readOnlyDescription": "Select an agent to read its saved messages. This workspace is read-only.",

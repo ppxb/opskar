@@ -117,7 +117,13 @@ import { type AgentSidebar, handleSidebarTool } from "./sidebar-tools";
 import { LOCAL_SKILL_TOOL_DEFINITIONS, type LocalSkillTools, runLocalSkillTool } from "./skill-tools";
 import { isDynamicToolCall } from "./thread-items";
 import { toolCallIdempotencyKey } from "./tool-call-idempotency";
-import { discoverTools, namesInSearch, resolveDeferredTool } from "./tool-catalog";
+import {
+  discoverTools,
+  type HostToolCapabilities,
+  hostToolAvailable,
+  namesInSearch,
+  resolveDeferredTool,
+} from "./tool-catalog";
 import { ToolOperationFailed, toolStep, toToolOperationFailed } from "./tool-operation";
 import type { AgentBrowserHost } from "./turn-lifecycle";
 import { handleUpdateAgentsTool } from "./update-agents-tool";
@@ -191,8 +197,9 @@ export interface OpenBotToolRouterOptions {
   mailboxSync: MailboxSync;
   conversation: ConversationRuntime;
   attention: AttentionRegistry;
-  browser: AgentBrowserHost;
-  browserUploads: BrowserUploads;
+  browser: AgentBrowserHost | null;
+  browserUploads: BrowserUploads | null;
+  toolCapabilities?: HostToolCapabilities;
   attachments: AttachmentGateway;
   channels: ChannelService;
   messaging: MessagingThreads;
@@ -234,8 +241,9 @@ export class OpenBotToolRouter {
   readonly #mailboxSync: MailboxSync;
   readonly #conversation: ConversationRuntime;
   readonly #attention: AttentionRegistry;
-  readonly #browser: AgentBrowserHost;
-  readonly #browserUploads: BrowserUploads;
+  readonly #browser: AgentBrowserHost | null;
+  readonly #browserUploads: BrowserUploads | null;
+  readonly #toolCapabilities: HostToolCapabilities;
   readonly #attachments: AttachmentGateway;
   readonly #channels: ChannelService;
   readonly #messaging: MessagingThreads;
@@ -271,6 +279,7 @@ export class OpenBotToolRouter {
     this.#attention = options.attention;
     this.#browser = options.browser;
     this.#browserUploads = options.browserUploads;
+    this.#toolCapabilities = { ...options.toolCapabilities, browser: options.browser !== null };
     this.#attachments = options.attachments;
     this.#channels = options.channels;
     this.#messaging = options.messaging;
@@ -326,6 +335,13 @@ export class OpenBotToolRouter {
         this.#hooks.emitError("server_request_failed", error);
       });
     return yield* Effect.gen({ self: this }, function* () {
+      if (
+        this.#toolCapabilities.prompts === false &&
+        (request.method === "item/tool/requestUserInput" || request.method === "mcpServer/elicitation/request")
+      ) {
+        client.respondError(request.id, { code: -32601, message: sourceText("error.agent.toolRequestInvalid") });
+        return;
+      }
       switch (request.method) {
         case "item/commandExecution/requestApproval":
           this.#attention.surfaceApproval(client, request, "command");
@@ -350,7 +366,7 @@ export class OpenBotToolRouter {
               let result: ReturnType<typeof discoverTools>;
               try {
                 this.#requireAgent(agentId);
-                result = discoverTools(params);
+                result = discoverTools(params, this.#toolCapabilities);
               } catch {
                 client.respond(request.id, openBotToolFailure(sourceText("error.agent.toolRequestInvalid")));
                 return;
@@ -364,13 +380,17 @@ export class OpenBotToolRouter {
               return;
             }
             if (params.tool === "tool_call") {
-              const resolved = resolveDeferredTool(params);
+              const resolved = resolveDeferredTool(params, this.#toolCapabilities);
               if (!resolved) {
                 client.respond(request.id, openBotToolFailure(sourceText("error.agent.toolRequestInvalid")));
                 return;
               }
               params = resolved;
             }
+          }
+          if (!hostToolAvailable(params.namespace, params.tool, this.#toolCapabilities)) {
+            client.respond(request.id, openBotToolFailure(sourceText("error.agent.toolRequestInvalid")));
+            return;
           }
           if (params.namespace === "openbot" && (params.tool === "history_search" || params.tool === "history_read")) {
             const scope = this.#conversation.historyScope(params.threadId, client);
@@ -397,6 +417,12 @@ export class OpenBotToolRouter {
           // Keep the transport identifiers and abort signal; enter the original dispatch below.
           const toolRequest = { ...request, params };
           if (toolRequest.params.namespace === OPENBOT_BROWSER_NAMESPACE) {
+            const browser = this.#browser;
+            const browserUploads = this.#browserUploads;
+            if (!browser || !browserUploads) {
+              client.respond(toolRequest.id, openBotToolFailure(sourceText("error.agent.toolRequestInvalid")));
+              return;
+            }
             const agentId = this.#conversation.agentForThread(toolRequest.params.threadId);
             if (!agentId) throw new Error("The browsing OpenBot agent is unknown.");
             if (toolRequest.params.tool === "request_takeover" || toolRequest.params.tool === "submit_secret") {
@@ -429,13 +455,13 @@ export class OpenBotToolRouter {
             };
             // While the user controls the tab, the call waits for the release and does not run.
             const userControl = (tabId: string) =>
-              this.#browser.awaitUserControlRelease(tabId).pipe(Effect.as(browserUserControlResult()));
+              browser.awaitUserControlRelease(tabId).pipe(Effect.as(browserUserControlResult()));
             const operation = Effect.gen({ self: this }, function* () {
-              const heldTabId = this.#browser.userControlTabFor(params);
+              const heldTabId = browser.userControlTabFor(params);
               if (heldTabId) return yield* userControl(heldTabId);
               switch (params.tool) {
                 case "upload_files":
-                  return yield* this.#browserUploads.uploadFiles(agentId, params);
+                  return yield* browserUploads.uploadFiles(agentId, params);
                 case "list_logins":
                   return yield* this.#attention.listVaultLogins(params);
                 case "list_vault_items":
@@ -450,7 +476,7 @@ export class OpenBotToolRouter {
                   // A Link card is read from Link before the fill; a saved card comes from the Vault.
                   const linkVault = yield* this.#attention.linkCardVault(client, toolRequest, params);
                   if (linkVault && !("secret" in linkVault)) return linkVault;
-                  return yield* this.#browser.handleDynamicTool(params, {
+                  return yield* browser.handleDynamicTool(params, {
                     onUserControl: userControl,
                     cardVault: linkVault ?? this.#attention.cardVault(client, toolRequest, params),
                   });
@@ -467,7 +493,7 @@ export class OpenBotToolRouter {
             if (signal?.aborted) return;
             const result = yield* operation.pipe(
               Effect.raceFirst(cancelled),
-              Effect.onInterrupt(() => Effect.sync(() => this.#browser.endControl(params.threadId, params.turnId))),
+              Effect.onInterrupt(() => Effect.sync(() => browser.endControl(params.threadId, params.turnId))),
             );
             if (!signal?.aborted && client.running) client.respond(toolRequest.id, result);
             return;

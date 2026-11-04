@@ -11,11 +11,17 @@ import {
   type SessionState,
 } from "@openbot/contracts/server-console";
 import {
+  LocalAgentCreateInput,
+  type LocalAgentCreateResult,
   LocalConversationInput,
   type LocalConversationPage,
+  LocalMessageInput,
+  type LocalMessageReceipt,
+  LocalStopInput,
   type LocalWorkspaceSnapshot,
 } from "@openbot/contracts/server-workspace";
 import { Cause, Effect, Exit, Result, Schema } from "effect";
+import { acquireServerAgent } from "./server-agent";
 import { acquireConsoleAuth, CONSOLE_COOKIE } from "./server-console-auth";
 import { ConsoleFailure, consoleError } from "./server-console-error";
 import { type ServerOptions, ServerStartupFailed } from "./server-options";
@@ -36,7 +42,10 @@ type ConsoleReply =
   | ProviderState
   | typeof ProviderTestResult.Type
   | LocalWorkspaceSnapshot
-  | LocalConversationPage;
+  | LocalConversationPage
+  | typeof LocalAgentCreateResult.Type
+  | typeof LocalMessageReceipt.Type
+  | Record<string, never>;
 
 function send(response: ServerResponse, status: number, body: ConsoleReply, cookie?: string): void {
   if (response.destroyed) return;
@@ -51,6 +60,7 @@ function send(response: ServerResponse, status: number, body: ConsoleReply, cook
 const requestBody = Effect.fn("ConsoleHttp.requestBody")(function* <Value>(
   request: IncomingMessage,
   decode: (value: unknown) => Value,
+  maxBytes = 16 * 1024,
 ) {
   if (request.headers["content-type"]?.split(";")[0]?.trim() !== "application/json") {
     return yield* new ConsoleFailure({ code: "invalid" });
@@ -63,7 +73,7 @@ const requestBody = Effect.fn("ConsoleHttp.requestBody")(function* <Value>(
       for await (const chunk of request.iterator({ destroyOnReturn: false })) {
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         bytes += buffer.byteLength;
-        if (bytes > 16 * 1024) throw new ConsoleFailure({ code: "too-large" });
+        if (bytes > maxBytes) throw new ConsoleFailure({ code: "too-large" });
         chunks.push(buffer);
       }
       return decode(JSON.parse(Buffer.concat(chunks).toString("utf8")));
@@ -76,10 +86,69 @@ const requestBody = Effect.fn("ConsoleHttp.requestBody")(function* <Value>(
 export const acquireWebConsole = Effect.fn("acquireWebConsole")(function* (options: ServerOptions) {
   const auth = yield* acquireConsoleAuth(options);
   const provider = yield* acquireProviderConsole(auth);
-  const workspace = yield* acquireLocalWorkspace(auth);
+  const execution = yield* acquireServerAgent(options, auth, provider);
+  const workspace = yield* acquireLocalWorkspace(auth, execution);
   const services = yield* Effect.context();
   const run = Effect.runPromiseExitWith(services);
   const pending = new Map<Promise<void>, AbortController>();
+  const streams = new Map<ServerResponse, (lastEvent?: string) => void>();
+  let revision = 0;
+  let notification: ReturnType<typeof setTimeout> | undefined;
+  const writeChange = (response: ServerResponse) => {
+    if (
+      !response.destroyed &&
+      !response.writableEnded &&
+      streams.has(response) &&
+      !response.write(`event: change\ndata: ${JSON.stringify({ revision })}\n\n`)
+    )
+      streams.get(response)?.();
+  };
+  const unsubscribe = execution.subscribe(() => {
+    revision += 1;
+    if (notification) return;
+    notification = setTimeout(() => {
+      notification = undefined;
+      for (const response of streams.keys()) writeChange(response);
+    }, 50);
+  });
+  yield* Effect.addFinalizer(() =>
+    Effect.sync(() => {
+      unsubscribe();
+      if (notification) clearTimeout(notification);
+      for (const close of streams.values()) close();
+    }),
+  );
+  const stream = (request: IncomingMessage, response: ServerResponse): void => {
+    if (response.destroyed || response.writableEnded) return;
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
+    });
+    let closed = false;
+    let releaseAuth: (() => void) | undefined;
+    const close = (lastEvent?: string) => {
+      if (closed) return;
+      closed = true;
+      streams.delete(response);
+      clearInterval(heartbeat);
+      releaseAuth?.();
+      if (!response.destroyed && !response.writableEnded) response.end(lastEvent);
+    };
+    const heartbeat = setInterval(() => {
+      if (!response.destroyed && !response.writableEnded && !response.write(": alive\n\n")) close();
+    }, 15_000);
+    heartbeat.unref();
+    streams.set(response, close);
+    response.once("close", () => close());
+    response.once("error", () => close());
+    const registered = auth.onSessionEnded(sessionToken(request), () => {
+      close("event: session-ended\ndata: {}\n\n");
+    });
+    if (closed) registered();
+    else releaseAuth = registered;
+    writeChange(response);
+  };
   const vite = yield* Effect.acquireRelease(
     Effect.tryPromise({
       try: async () => {
@@ -171,6 +240,28 @@ export const acquireWebConsole = Effect.fn("acquireWebConsole")(function* (optio
     }
     yield* auth.requireSession(token);
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/api/workspace/events" && request.method === "GET") {
+      stream(request, response);
+      return;
+    }
+    if (url.pathname === "/api/workspace/agents" && request.method === "POST") {
+      const input = yield* requestBody(request, Schema.decodeUnknownSync(LocalAgentCreateInput));
+      send(response, 200, yield* execution.createAgent(token, input));
+      return;
+    }
+    const action = /^\/api\/workspace\/agents\/([A-Za-z0-9_-]{1,128})\/(messages|stop)$/u.exec(url.pathname);
+    if (action && request.method === "POST") {
+      const agentId = action[1] ?? "";
+      if (action[2] === "messages") {
+        const input = yield* requestBody(request, Schema.decodeUnknownSync(LocalMessageInput), 512 * 1024);
+        send(response, 200, yield* execution.sendMessage(token, agentId, input));
+      } else {
+        const input = yield* requestBody(request, Schema.decodeUnknownSync(LocalStopInput));
+        yield* execution.stopAgent(token, agentId, input);
+        send(response, 200, {});
+      }
+      return;
+    }
     if (url.pathname === "/api/workspace" && request.method === "GET") {
       if (url.search) return yield* new ConsoleFailure({ code: "workspace-input" });
       send(response, 200, yield* workspace.readWorkspace(token));
@@ -199,7 +290,7 @@ export const acquireWebConsole = Effect.fn("acquireWebConsole")(function* (optio
       send(response, 200, yield* provider.get(token));
     } else if (request.url === "/api/provider" && request.method === "PUT") {
       const input = yield* requestBody(request, Schema.decodeUnknownSync(ProviderInput));
-      send(response, 200, yield* provider.save(token, input));
+      send(response, 200, yield* execution.saveProvider(token, input));
     } else if (request.url === "/api/provider/test" && request.method === "POST") {
       yield* requestBody(request, Schema.decodeUnknownSync(Schema.Struct({})));
       send(response, 200, yield* provider.test(token));

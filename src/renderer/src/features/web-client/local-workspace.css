@@ -37,3 +37,15 @@
 .local-workspace .conversation-header-actions {
   flex-wrap: wrap;
 }
+
+.local-workspace-composer {
+  padding-block: var(--openbot-space-3);
+}
+
+.local-workspace-composer .composer-toolbar {
+  justify-content: space-between;
+}
+
+.local-workspace .first-agent-setup-content:not(:has(.first-agent-suggestions)) {
+  grid-template-columns: minmax(0, 1fr);
+}

@@ -5,27 +5,33 @@ import { ChatActionMarker } from "@openbot/ui/features/conversation/ChatActionMa
 import { ChatMessageRow } from "@openbot/ui/features/conversation/ChatMessageRow";
 import { TaskList } from "@openbot/ui/features/conversation/TaskList";
 import { useText } from "@openbot/ui/text";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, createProjection, For, Show } from "solid-js";
 import { planItems, planTitle, toAgentMessage } from "../../app-message-projection";
 import type { createLocalWorkspace } from "./local-workspace-context";
 
-/** A stored snapshot never loads desktop attachment URLs or starts streaming animations. */
-function historyMessage(message: ConversationMessage, agentId: string): AgentMessage {
+/** Only the active turn can stream; a saved snapshot never loads desktop attachment URLs. */
+function historyMessage(message: ConversationMessage, agentId: string, activeTurnId?: string | null): AgentMessage {
   const row = toAgentMessage(message, agentId);
   return {
     ...row,
-    streaming: false,
+    streaming: Boolean(activeTurnId && row.turnId === activeTurnId && row.streaming),
     attachments: row.attachments?.map((attachment) => ({ ...attachment, previewUrl: null })),
   };
 }
 
 export function LocalWorkspaceHistory(props: { workspace: ReturnType<typeof createLocalWorkspace> }) {
   const { t } = useText();
-  const rows = createMemo(
+  const rows = createProjection<AgentMessage[]>(
     () =>
       props.workspace.state.page?.messages.map((message) =>
-        historyMessage(message, props.workspace.state.page?.agentId ?? ""),
+        historyMessage(
+          message,
+          props.workspace.state.page?.agentId ?? "",
+          props.workspace.selectedExecutionReady() ? props.workspace.state.page?.activeTurnId : null,
+        ),
       ) ?? [],
+    [],
+    { key: "id" },
   );
   const references = createMemo(() => {
     const page = props.workspace.state.page;
@@ -73,13 +79,13 @@ export function LocalWorkspaceHistory(props: { workspace: ReturnType<typeof crea
           </Button>
         </div>
       </Show>
-      <Show when={!props.workspace.state.loadingHistory && props.workspace.state.page && rows().length === 0}>
+      <Show when={!props.workspace.state.loadingHistory && props.workspace.state.page && rows.length === 0}>
         <Text as="p" class="local-workspace-empty" role="status">
           {t("settings.workspace.noMessages")}
         </Text>
       </Show>
       <div class="virtual-chat-list virtual-chat-list-static">
-        <For each={rows()}>
+        <For each={rows}>
           {(message) => (
             <div class="virtual-chat-row">
               <Show
@@ -106,7 +112,7 @@ export function LocalWorkspaceHistory(props: { workspace: ReturnType<typeof crea
                         referencedMessage={
                           message.replyToMessageId
                             ? (references().get(message.replyToMessageId) ??
-                              rows().find((row) => row.id === message.replyToMessageId))
+                              rows.find((row) => row.id === message.replyToMessageId))
                             : undefined
                         }
                         onSelectAgent={(id) => void props.workspace.select(id)}
@@ -114,7 +120,9 @@ export function LocalWorkspaceHistory(props: { workspace: ReturnType<typeof crea
                       />
                     }
                   >
-                    {(plan) => <TaskList items={planItems(plan(), false)} title={planTitle(plan())} />}
+                    {(plan) => (
+                      <TaskList items={planItems(plan(), message.streaming === true)} title={planTitle(plan())} />
+                    )}
                   </Show>
                 }
               >

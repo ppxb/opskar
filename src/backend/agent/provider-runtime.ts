@@ -352,6 +352,7 @@ export class ProviderRuntime implements ProviderPort {
   readonly #longStartTimeoutMs: number;
   readonly #clientFactory: AgentClientFactory | null;
   readonly #bundledExecutables: BundledProviderExecutables;
+  readonly #fixedExecutables: Partial<Record<AgentProvider, string>>;
   readonly #credentials: ProviderClientContext;
   readonly #clients = new Map<AgentProvider, AgentClient>();
   /** By agent id. See `ConfinedClient`. */
@@ -505,6 +506,7 @@ export class ProviderRuntime implements ProviderPort {
     preferredModel?: AgentModelId | null;
     clientFactory: AgentClientFactory | null;
     bundledExecutables: BundledProviderExecutables;
+    fixedExecutables?: Partial<Record<AgentProvider, string>>;
     credentials: ProviderClientContext;
     mcpHandoff?: McpHandoffLog;
     redactMcp: (text: string) => string;
@@ -522,6 +524,7 @@ export class ProviderRuntime implements ProviderPort {
     this.#preferredModel = options.preferredModel ?? null;
     this.#clientFactory = options.clientFactory;
     this.#bundledExecutables = { ...options.bundledExecutables };
+    this.#fixedExecutables = { ...options.fixedExecutables };
     this.#credentials = options.credentials;
     this.#mcpHandoff = options.mcpHandoff ?? new McpHandoffLog();
     this.#redactMcp = options.redactMcp;
@@ -765,10 +768,11 @@ export class ProviderRuntime implements ProviderPort {
       }
       const driver = requireProviderDriver(provider);
       const bundledExecutable = this.#bundledExecutables[driver.cliProvider ?? provider];
-      const cli = yield* resolveInstalledFirst(
-        (input) => driver.resolveCli(input),
-        bundledExecutable,
-        preferInstalled,
+      const fixedExecutable = this.#fixedExecutables[provider];
+      const cli = yield* (
+        fixedExecutable === undefined
+          ? resolveInstalledFirst((input) => driver.resolveCli(input), bundledExecutable, preferInstalled)
+          : driver.resolveCli({ systemCandidates: [fixedExecutable], bundledExecutable: null })
       ).pipe(toProviderOperationFailed);
       this.#cliSources.set(provider, cli.source);
       return cli;

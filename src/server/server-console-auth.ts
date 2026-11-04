@@ -17,6 +17,7 @@ function digest(value: string): Buffer {
 export class ConsoleAuth {
   readonly #passwordHash: Buffer;
   readonly #sessions = new Map<string, number>();
+  readonly #endListeners = new Map<string, Set<() => void>>();
   #attempts = 0;
   #windowEnd = 0;
 
@@ -31,10 +32,43 @@ export class ConsoleAuth {
     const expires = this.#sessions.get(hash);
     if (expires === undefined) return false;
     if (expires <= Date.now()) {
-      this.#sessions.delete(hash);
+      this.#endSession(hash);
       return false;
     }
     return true;
+  }
+
+  #endSession(hash: string): void {
+    this.#sessions.delete(hash);
+    for (const listener of this.#endListeners.get(hash) ?? []) listener();
+    this.#endListeners.delete(hash);
+  }
+
+  /** A stream has the same deadline and revocation as its HTTP session. */
+  onSessionEnded(token: string | undefined, listener: () => void): () => void {
+    if (!token || !this.authenticated(token)) {
+      listener();
+      return () => undefined;
+    }
+    const hash = digest(token).toString("hex");
+    const expires = this.#sessions.get(hash);
+    if (expires === undefined) {
+      listener();
+      return () => undefined;
+    }
+    let listeners = this.#endListeners.get(hash);
+    if (!listeners) {
+      listeners = new Set();
+      this.#endListeners.set(hash, listeners);
+    }
+    listeners.add(listener);
+    const timer = setTimeout(() => this.#endSession(hash), Math.max(1, expires - Date.now()));
+    timer.unref();
+    return () => {
+      clearTimeout(timer);
+      listeners.delete(listener);
+      if (listeners.size === 0) this.#endListeners.delete(hash);
+    };
   }
 
   requireSession = Effect.fn("ConsoleAuth.requireSession")(function* (this: ConsoleAuth, token: string | undefined) {
@@ -51,8 +85,8 @@ export class ConsoleAuth {
     if (!timingSafeEqual(this.#passwordHash, digest(password))) {
       return yield* new ConsoleFailure({ code: "unauthorized" });
     }
-    if (previous) this.#sessions.delete(digest(previous).toString("hex"));
-    for (const [hash, expires] of this.#sessions) if (expires <= now) this.#sessions.delete(hash);
+    if (previous) this.#endSession(digest(previous).toString("hex"));
+    for (const [hash, expires] of this.#sessions) if (expires <= now) this.#endSession(hash);
     if (this.#sessions.size >= 16) return yield* new ConsoleFailure({ code: "rate-limit" });
     const token = randomBytes(32).toString("hex");
     registerSecretValue(token);
@@ -62,12 +96,12 @@ export class ConsoleAuth {
 
   logout = Effect.fn("ConsoleAuth.logout")(function* (this: ConsoleAuth, token: string | undefined) {
     yield* this.requireSession(token);
-    if (token) this.#sessions.delete(digest(token).toString("hex"));
+    if (token) this.#endSession(digest(token).toString("hex"));
     return `${CONSOLE_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`;
   });
 
   dispose(): void {
-    this.#sessions.clear();
+    for (const hash of this.#sessions.keys()) this.#endSession(hash);
     this.#passwordHash.fill(0);
   }
 }

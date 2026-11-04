@@ -1357,12 +1357,16 @@ export class MailboxStore {
    * The delivery that starts the next turn in one lane of this agent: its own chat (`taskId` null,
    * with its channel and messaging work), or one task. Each lane runs one turn at a time.
    */
-  nextQueued(agentId: string, taskId: string | null = null): DeliveryContext | null {
+  nextQueued(agentId: string, taskId: string | null = null, includeScheduledWork = true): DeliveryContext | null {
     if (this.laneActive(agentId, taskId)) return null;
     const messages = this.#messagesById();
-    const delivery = this.#queuedFor(agentId).find(
-      (candidate) => this.#taskIdOf(candidate, messages) === taskId && !this.#isHeldReply(candidate),
-    );
+    const delivery = this.#queuedFor(agentId).find((candidate) => {
+      if (this.#taskIdOf(candidate, messages) !== taskId || this.#isHeldReply(candidate)) return false;
+      if (includeScheduledWork) return true;
+      const message = this.#requireMessage(candidate.messageId, messages);
+      // Channel routines use a user sender. Their channel identity keeps them dormant as well.
+      return message.sender.kind !== "routine" && message.channelId === undefined;
+    });
     return delivery && this.#mayStart(delivery) ? this.#context(delivery, undefined, messages) : null;
   }
 

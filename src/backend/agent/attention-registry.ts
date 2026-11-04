@@ -381,7 +381,7 @@ type AttentionConversation = Pick<
 
 export interface AttentionRegistryOptions {
   conversation: AttentionConversation;
-  browser: AttentionBrowserHost;
+  browser: AttentionBrowserHost | null;
   hostedSites: HostedSiteApprovals;
   routines: RoutineAttention;
   /** Read at each approval, so a grant the user gives now applies to the next request. */
@@ -440,7 +440,7 @@ export class AttentionRegistry {
   // A handle belongs to one pending object, even when a provider reuses its request ID.
   readonly #localHandles = new WeakMap<PendingPrompt | PendingApproval | PendingBrowserTakeover, string>();
   readonly #conversation: AttentionConversation;
-  readonly #browser: AttentionBrowserHost;
+  readonly #browser: AttentionBrowserHost | null;
   readonly #hostedSites: HostedSiteApprovals;
   readonly #routines: RoutineAttention;
   readonly #approvalAutomation: ApprovalAutomationPolicy;
@@ -837,7 +837,7 @@ export class AttentionRegistry {
     if (input.decision === "submit" && pending.request.secret)
       pending.request.secret = { ...pending.request.secret, requiresReload: true };
     else delete pending.request.secret;
-    yield* this.#browser.beginTakeover(pending.request.tabId).pipe(toAttentionOperationFailed);
+    if (this.#browser) yield* this.#browser.beginTakeover(pending.request.tabId).pipe(toAttentionOperationFailed);
     this.#emit({ type: "browser-takeover-requested", request: pending.request });
     this.#emitRuntimeSnapshot();
   }, Effect.uninterruptible);
@@ -1032,6 +1032,8 @@ export class AttentionRegistry {
     client: AgentClient,
     request: AppServerRequest,
   ) {
+    const browser = this.#browser;
+    if (!browser) return browserTakeoverError();
     if (!isDynamicToolCall(request.params)) return browserTakeoverError();
     const params = request.params;
     const { threadId, turnId } = params;
@@ -1039,7 +1041,7 @@ export class AttentionRegistry {
     const args = getRecord(params, "arguments");
     const tabId = getString(args, "tabId");
     const publicThreadId = agentId ? this.#conversation.publicThreadId(agentId, threadId) : null;
-    const tab = tabId ? this.#browser.listTabs().find((candidate) => candidate.id === tabId) : undefined;
+    const tab = tabId ? browser.listTabs().find((candidate) => candidate.id === tabId) : undefined;
     if (
       !agentId ||
       !turnId ||
@@ -1081,7 +1083,7 @@ export class AttentionRegistry {
       // give them would leave the agent acting on the page underneath them.
       const prepare = Effect.gen({ self: this }, function* () {
         if (params.tool === "submit_secret") {
-          const prepareSecret = this.#browser.prepareSecret?.bind(this.#browser);
+          const prepareSecret = browser.prepareSecret?.bind(browser);
           if (!prepareSecret)
             return yield* new AttentionOperationFailed({
               cause: new Error(sourceText("error.backend.secureAuthUnavailable")),
@@ -1097,7 +1099,7 @@ export class AttentionRegistry {
           }
           pending.secret = secret;
           pending.request.secret = secret.request;
-        } else yield* this.#browser.beginTakeover(takeover.tabId).pipe(toAttentionOperationFailed);
+        } else yield* browser.beginTakeover(takeover.tabId).pipe(toAttentionOperationFailed);
       });
       const prepared = yield* Effect.result(prepare);
       if (Result.isSuccess(prepared)) {
@@ -1437,7 +1439,7 @@ export class AttentionRegistry {
     if (call.tool !== "list_logins")
       return yield* new AttentionOperationFailed({ cause: new Error("Invalid login list request.") });
     const { tabId } = call.args;
-    const tab = this.#browser.listTabs().find((candidate) => candidate.id === tabId);
+    const tab = this.#browser?.listTabs().find((candidate) => candidate.id === tabId);
     if (!tab || tab.ownerAgentId !== params.ownerAgentId || tab.ownerThreadId !== params.threadId)
       return browserTakeoverError(sourceText("error.backend.browserTabNotFound"));
     const listed = yield* Effect.result(
@@ -1965,7 +1967,7 @@ export class AttentionRegistry {
     // `surfaceBrowserTakeover` refuses a second request for the same tab, so this is belt and braces --
     // but returning control while another request still waits on the tab would be the worse mistake.
     if (![...this.#takeovers.values()].some((candidate) => candidate.request.tabId === pending.request.tabId)) {
-      this.#browser.endTakeover(pending.request.tabId);
+      this.#browser?.endTakeover(pending.request.tabId);
     }
     this.#emit({
       type: "browser-takeover-resolved",

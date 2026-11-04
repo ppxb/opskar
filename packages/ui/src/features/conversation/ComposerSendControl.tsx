@@ -7,6 +7,8 @@ export interface ComposerSendControlProps {
   /** Show Stop in place of Send: the agent works and the message box has nothing to send. */
   stop: boolean;
   onStop: () => void;
+  /** Prevent a second Stop while the host handles the first one. */
+  stopDisabled?: boolean | undefined;
   /** The accessible name of Send. */
   label: string;
   keyShortcuts?: string | undefined;
@@ -48,6 +50,7 @@ export function ComposerSendControl(props: ComposerSendControlProps) {
         type="button"
         class="voice-button voice-button-active"
         aria-label={t("composer.send.stop")}
+        disabled={props.stopDisabled}
         data-cuelume-tap="close"
         onClick={() => props.onStop()}
       >

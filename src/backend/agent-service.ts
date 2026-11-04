@@ -284,7 +284,12 @@ interface AgentServiceEvents {
 export interface AgentServiceOptions {
   store: AgentStore;
   mailbox: MailboxStore;
-  browser: AgentBrowserHost;
+  /** Null when this host has no browser or Computer Use capability. */
+  browser: AgentBrowserHost | null;
+  /** Disabled hosts run user work only. Desktop scheduled work stays enabled by default. */
+  automation?: "enabled" | "disabled";
+  /** False when this host cannot show or answer question and secret-input forms. */
+  interactivePrompts?: boolean;
   requestTimeoutMs?: number;
   /**
    * How long a provider takes to start a context compaction before OpenBot stops it. A started
@@ -298,6 +303,8 @@ export interface AgentServiceOptions {
   preferredModel?: AgentModelId | null;
   clientFactory?: AgentClientFactory | null;
   bundledExecutables?: BundledProviderExecutables;
+  /** Use only these operator-selected executables, with no installed or environment fallback. */
+  fixedExecutables?: Partial<Record<AgentProvider, string>>;
   prepareAgentWorkspace?: (agent: AgentSummary) => Effect.Effect<void, AgentLifecycleFailed>;
   hostedSites?: AgentHostedSites | null;
   /** Draws pages for `html_preview`. Without it the tool tells the agent to show the page unchecked. */
@@ -438,7 +445,8 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #pendingUserSends = new Map<string, Deferred.Deferred<QueuedMessageReceipt, AgentLifecycleFailed>>();
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
-  readonly #browser: AgentBrowserHost;
+  readonly #browser: AgentBrowserHost | null;
+  readonly #automationEnabled: boolean;
   readonly #reader: ConversationReader;
   readonly #memories: AgentMemories;
   readonly #instructionChanges = new InstructionsChanges();
@@ -467,7 +475,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #sessionSettings: SessionSettings;
   readonly #queue: QueueControls;
   readonly #attachments: AttachmentGateway;
-  readonly #browserUploads: BrowserUploads;
+  readonly #browserUploads: BrowserUploads | null;
   readonly #mailboxSync: MailboxSync;
   readonly #boot: BootRecovery;
   readonly #deltas: DeltaBuffer;
@@ -519,12 +527,13 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     this.#localSkillTools = localSkillTools;
     this.#routineFlowTools = routineFlowTools;
     this.#store = store;
+    this.#automationEnabled = options.automation !== "disabled";
     // First of the sub-objects, because `#emitError` reads it to redact and every one of them is
     // given that callback.
     this.#mcp = new McpGateway({
       servers: new McpServerStore(store.database),
       credentials,
-      computerUseMcpServer,
+      computerUseMcpServer: browser === null ? () => null : computerUseMcpServer,
       githubConnector,
       agents: () => store.list(),
       logger,
@@ -629,13 +638,17 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       redact: (text) => this.#mcp.redact(text),
       stopping: () => this.#stopping,
       ...(options.memoryReviewIdleMs === undefined ? {} : { idleMs: options.memoryReviewIdleMs }),
-      ...(options.memoryReviewInterval ? { interval: options.memoryReviewInterval } : {}),
+      ...(!this.#automationEnabled
+        ? { interval: () => 0 }
+        : options.memoryReviewInterval
+          ? { interval: options.memoryReviewInterval }
+          : {}),
     });
     // One timer for every routine owner. The sources are read lazily because `channels` and its
     // scheduler are built further down, and because an owner's earliest routine changes constantly.
     this.#routineTimer = new RoutineTimer(
       () => [this.#routines, this.#channelRoutines, ...(options.extraRoutineSources?.() ?? [])],
-      () => this.#initialized && !this.#stopping,
+      () => this.#automationEnabled && this.#initialized && !this.#stopping,
       (code, error) => this.#emitError(code, error),
     );
     this.#waits = new AgentWaits({
@@ -670,7 +683,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         // A hidden agent keeps its routines, but they do not run until the user restores it.
         excludedAgents: () =>
           new Set([...this.#duplication.pendingAgents(), ...this.#removal.deleting(), ...this.#hiddenAgentIds()]),
-        isRunning: () => this.#initialized && !this.#stopping,
+        isRunning: () => this.#automationEnabled && this.#initialized && !this.#stopping,
         usageLimited: (agentId) => !this.#usageLimits.mayDrain(agentId),
       },
     });
@@ -682,6 +695,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       isStopping: () => this.#stopping,
     });
     this.#providers = new ProviderRuntime({
+      ...(options.fixedExecutables ? { fixedExecutables: options.fixedExecutables } : {}),
       offProviders: options.offProviders ?? [],
       ...(options.providerAccounts ? { accounts: options.providerAccounts } : {}),
       saveProviderUse: (provider, on) =>
@@ -733,8 +747,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
                     : reportOriginalFailure(cause, (failure) => this.#emitError("delivery_reconcile_failed", failure)),
                 ),
               );
-            yield* this.channels.recover();
-            this.#channelRoutines.reconcileAll();
+            if (this.#automationEnabled) {
+              yield* this.channels.recover();
+              this.#channelRoutines.reconcileAll();
+            }
             yield* this.#boot.backfillProviderHistory().pipe(Effect.forkIn(this.#scope));
           }).pipe(
             // Limits are not kept over a restart, so an agent on a backup model goes back first.
@@ -948,9 +964,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     let userControlTabIds = "";
     // `browser-page-state` sends the history state the same way.
     let browserPageStates = "";
-    this.#browser.onChanged((tabs, activeTabId) => {
+    this.#browser?.onChanged((tabs, activeTabId) => {
       this.#attention.cancelTakeoversForMissingTabs(tabs);
-      Effect.runFork(this.#browserUploads.retainTabs(tabs).pipe(Effect.forkIn(this.#scope)));
+      if (this.#browserUploads) Effect.runFork(this.#browserUploads.retainTabs(tabs).pipe(Effect.forkIn(this.#scope)));
       this.#emit({ type: "browser-changed", tabs, activeTabId });
       const pageStates = tabs.map((tab) => ({
         tabId: tab.id,
@@ -967,9 +983,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       userControlTabIds = held.join("\n");
       this.#emit({ type: "browser-user-control-changed", tabIds: held });
     });
-    this.#browser.onDocumentChanged((tabId, documentIds) =>
-      Effect.runFork(this.#browserUploads.retainDocuments(tabId, documentIds).pipe(Effect.forkIn(this.#scope))),
-    );
+    this.#browser?.onDocumentChanged((tabId, documentIds) => {
+      if (this.#browserUploads)
+        Effect.runFork(this.#browserUploads.retainDocuments(tabId, documentIds).pipe(Effect.forkIn(this.#scope)));
+    });
     this.#images = new ImageGenRuntime({
       conversation: this.#conversation,
       mailbox,
@@ -1015,13 +1032,20 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       },
     });
-    this.#browserUploads = new BrowserUploads({
-      browser,
-      attachments: this.#attachments,
-      isStopping: () => this.#stopping,
-      hasTakeover: (agentId) => this.#attention.hasBrowserTakeoverForAgent(agentId),
-    });
+    this.#browserUploads = browser
+      ? new BrowserUploads({
+          browser,
+          attachments: this.#attachments,
+          isStopping: () => this.#stopping,
+          hasTakeover: (agentId) => this.#attention.hasBrowserTakeoverForAgent(agentId),
+        })
+      : null;
     this.#threads = new ThreadLifecycle({
+      toolCapabilities: {
+        browser: browser !== null,
+        automation: this.#automationEnabled,
+        prompts: options.interactivePrompts !== false,
+      },
       store,
       mailbox,
       conversation: this.#conversation,
@@ -1111,6 +1135,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
               ),
             );
         }).pipe(toChannelOperationError),
+      executionEnabled: () => this.#automationEnabled,
       schedule: (agentId) => this.#drain.scheduleDrain(agentId),
       awaitDrain: (agentId) => this.#drain.taskFor(agentId)?.pipe(toChannelOperationError),
       contextCharacters: (agentId, threadId) => {
@@ -1283,6 +1308,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       },
     });
     this.#drain = new DrainScheduler({
+      automation: this.#automationEnabled ? "enabled" : "disabled",
       channels: this.channels,
       messaging: this.messaging,
       store,
@@ -1369,7 +1395,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       exclusive: (run) => this.#endpoints.runExclusive(run),
       changed: (agentId) => this.#emit({ type: "agent-session-settings-changed", agentId }),
     });
-    this.#browser.onControlChanged((state) => {
+    this.#browser?.onControlChanged((state) => {
       this.#emit({ type: "browser-control-changed", state });
     });
     this.#queue = new QueueControls({
@@ -1491,6 +1517,11 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       },
     });
     this.#tools = new OpenBotToolRouter({
+      toolCapabilities: {
+        browser: browser !== null,
+        automation: this.#automationEnabled,
+        prompts: options.interactivePrompts !== false,
+      },
       capturedSteps: (session) => this.#threads.capturedWorkSteps(session).pipe(toToolOperationFailed),
       store,
       mailbox,
@@ -1716,7 +1747,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
    */
   /** The next scheduled routine run of any agent or channel, or null when none is scheduled. */
   nextRoutineDueAt(): string | null {
-    return this.#routineTimer.nextDueAt();
+    return this.#automationEnabled ? this.#routineTimer.nextDueAt() : null;
   }
 
   hasActiveWork(): string[] {
@@ -3503,23 +3534,25 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
 
   readonly initialize = Effect.fn("AgentService.initialize")(function* (
     this: AgentService,
-    options: { heldRoutines?: RoutineHoldWindow | undefined } = {},
+    options: { heldRoutines?: RoutineHoldWindow | undefined; storesAlreadyInitialized?: boolean } = {},
   ) {
     this.#stopping = false;
-    yield* this.#store
-      .initialize()
-      .pipe(
-        Effect.mapError(
-          (failure) => new AgentLifecycleFailed({ operation: "initialize agent store", cause: failure.cause }),
-        ),
-      );
-    yield* this.#mailbox
-      .initialize()
-      .pipe(
-        Effect.mapError(
-          (failure) => new AgentLifecycleFailed({ operation: "initialize mailbox", cause: failure.cause }),
-        ),
-      );
+    if (!options.storesAlreadyInitialized) {
+      yield* this.#store
+        .initialize()
+        .pipe(
+          Effect.mapError(
+            (failure) => new AgentLifecycleFailed({ operation: "initialize agent store", cause: failure.cause }),
+          ),
+        );
+      yield* this.#mailbox
+        .initialize()
+        .pipe(
+          Effect.mapError(
+            (failure) => new AgentLifecycleFailed({ operation: "initialize mailbox", cause: failure.cause }),
+          ),
+        );
+    }
     yield* lifecycleStep("restore channel links", () => {
       this.#mcp.migrateCatalogBridgesToHttp();
       this.channels.restoreDeliveryLinks();
@@ -3535,8 +3568,10 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     yield* lifecycleStep("recover agent state", () => {
       this.#boot.recoverPersistedTurns();
       this.#hostedSites.restore();
-      this.#routines.skipMissed(new Date(), options.heldRoutines);
-      this.#channelRoutines.skipMissed(new Date(), options.heldRoutines);
+      if (this.#automationEnabled) {
+        this.#routines.skipMissed(new Date(), options.heldRoutines);
+        this.#channelRoutines.skipMissed(new Date(), options.heldRoutines);
+      }
       this.#initialized = true;
       this.#memoryHold.start();
     });
@@ -3546,6 +3581,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     yield* lifecycleStep("publish queues", () => {
       for (const agent of this.#store.list()) this.#mailboxSync.emitQueue(agent.id);
     });
+    if (!this.#automationEnabled) return;
     yield* this.#routines
       .resumePendingRuns()
       .pipe(
@@ -4096,7 +4132,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     yield* this.#usageLimits.dispose();
     this.#drain.dispose();
     this.#planContinuation.dispose();
-    this.#browser.clearControls();
+    this.#browser?.clearControls();
     yield* Effect.forEach(clients, (client) => client.stop().pipe(Effect.catch(() => Effect.void)), {
       concurrency: "unbounded",
       discard: true,
@@ -4110,13 +4146,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     yield* this.#images.dispose();
     yield* settleLifecycleTasks("finish attachment commands", this.#attachments.pendingCommands());
     this.#attachments.dispose();
-    yield* this.#browserUploads
-      .dispose()
-      .pipe(
-        Effect.mapError(
-          (failure) => new AgentLifecycleFailed({ operation: "stop browser uploads", cause: failure.cause }),
-        ),
-      );
+    if (this.#browserUploads)
+      yield* this.#browserUploads
+        .dispose()
+        .pipe(
+          Effect.mapError(
+            (failure) => new AgentLifecycleFailed({ operation: "stop browser uploads", cause: failure.cause }),
+          ),
+        );
     yield* Scope.close(this.#scope, Exit.void);
     this.#scope = Scope.makeUnsafe();
     this.#providers.markStopped();

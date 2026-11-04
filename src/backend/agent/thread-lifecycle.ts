@@ -66,7 +66,7 @@ import { decodeCapturedSteps, readCapturedSteps } from "./handoff-tool-steps";
 import { isProviderTimeout } from "./provider-status";
 import { sessionSettingsIdentity } from "./session-settings";
 import { isArchivedThreadError, isMissingProviderSessionError, providerLabel } from "./thread-items";
-import { VISIBLE_DYNAMIC_TOOLS } from "./tool-catalog";
+import { type HostToolCapabilities, VISIBLE_DYNAMIC_TOOLS, visibleDynamicTools } from "./tool-catalog";
 import {
   AGENT_INSTRUCTIONS_FILE_BYTES,
   type PromptInstructionsFile,
@@ -168,6 +168,7 @@ export interface ThreadLifecycleHooks {
 }
 
 export interface ThreadLifecycleOptions {
+  toolCapabilities?: HostToolCapabilities;
   store: AgentStore;
   mailbox: MailboxStore;
   conversation: ConversationRuntime;
@@ -213,6 +214,8 @@ export interface ThreadLifecycleOptions {
  * Never imports the facade; the drain scheduler takes this class directly.
  */
 export class ThreadLifecycle {
+  readonly #toolCapabilities: HostToolCapabilities;
+  readonly #dynamicTools: typeof VISIBLE_DYNAMIC_TOOLS;
   readonly #sessionStarts = new Map<string, number>();
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
@@ -248,6 +251,8 @@ export class ThreadLifecycle {
   readonly #pendingMainStarts = new Map<string, number>();
 
   constructor(options: ThreadLifecycleOptions) {
+    this.#toolCapabilities = options.toolCapabilities ?? {};
+    this.#dynamicTools = visibleDynamicTools(this.#toolCapabilities);
     this.#store = options.store;
     this.#mailbox = options.mailbox;
     this.#conversation = options.conversation;
@@ -636,7 +641,7 @@ export class ThreadLifecycle {
         instructionsFile,
       ),
       serviceName: "openbot",
-      dynamicTools: VISIBLE_DYNAMIC_TOOLS,
+      dynamicTools: this.#dynamicTools,
     };
     return { agent, mcpServers, toolRuntimes, own, environment, section, proxy, instructionsFile, params };
   });
@@ -955,7 +960,7 @@ export class ThreadLifecycle {
     return createHash("sha256")
       .update(
         JSON.stringify([
-          VISIBLE_DYNAMIC_TOOLS,
+          this.#dynamicTools,
           mcpFingerprintValues(configs),
           Object.keys(disabled).sort(),
           // A revoked approval must also replace a loaded session with the old tool policy.
@@ -1022,7 +1027,9 @@ export class ThreadLifecycle {
    * drive it at the same time.
    */
   #sessionAgent(agent: AgentSummary, publicThreadId: string): AgentSummary {
-    return this.#computerUseInOwnChat(agent, publicThreadId) ? { ...agent, computerUse: false } : agent;
+    return this.#toolCapabilities.browser === false || this.#computerUseInOwnChat(agent, publicThreadId)
+      ? { ...agent, computerUse: false }
+      : agent;
   }
 
   #computerUseInOwnChat(agent: AgentSummary, publicThreadId: string): boolean {
@@ -1050,6 +1057,7 @@ export class ThreadLifecycle {
 
   /** Claude and the ACP clients read the servers themselves, so they are told to leave Computer Use out. */
   #computerUseParam(agent: AgentSummary, client: AgentClient): { computerUse?: false } {
+    if (this.#toolCapabilities.browser === false) return { computerUse: false };
     return client.provider === "codex" || agentComputerUseEnabled(agent) ? {} : { computerUse: false };
   }
 
@@ -1130,6 +1138,9 @@ export class ThreadLifecycle {
   ): DynamicRecord {
     const memories = this.#memories.essentialFor(agent.id);
     const options = {
+      browser: this.#toolCapabilities.browser,
+      automation: this.#toolCapabilities.automation,
+      prompts: this.#toolCapabilities.prompts,
       computerUseInOwnChat,
       sideThread,
       passwordVault: this.#passwordVaultConnected(),
@@ -1234,7 +1245,7 @@ export class ThreadLifecycle {
         configs,
         yield* this.#instructionsFile(agent, client),
       ),
-      ...(client.provider === "codex" ? {} : { dynamicTools: VISIBLE_DYNAMIC_TOOLS }),
+      ...(client.provider === "codex" ? {} : { dynamicTools: this.#dynamicTools }),
       ...(yield* this.codexConfigEffect(
         agent,
         client,

@@ -53,6 +53,8 @@ export interface FirstAgentSetupProps {
   suggestions: FirstAgentSuggestion[];
   mode?: "first" | "additional";
   submitting?: boolean;
+  /** A host can show the draft while its execution capability is unavailable. */
+  submitDisabled?: boolean;
   error?: string | null;
   /** The live catalog behind the model picker. Absent, the form keeps no model choice. */
   modelOptions?: ClientAgentModelOption[] | undefined;
@@ -179,7 +181,10 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
   const [canScrollSuggestionsForward, setCanScrollSuggestionsForward] = createSignal(false);
   const [draggingSuggestions, setDraggingSuggestions] = createSignal(false);
   const canSubmit = () =>
-    Boolean(props.value.name.trim()) && !instructionsTooLong(props.value.purpose) && !props.submitting;
+    Boolean(props.value.name.trim()) &&
+    !instructionsTooLong(props.value.purpose) &&
+    !props.submitting &&
+    !props.submitDisabled;
   const displayName = () => props.value.name.trim() || t("agent.setup.nameFallback");
 
   function updateSuggestionFades(): void {
@@ -516,56 +521,58 @@ export function FirstAgentSetup(props: FirstAgentSetupProps) {
           </div>
         </form>
 
-        <section class="first-agent-suggestions" aria-labelledby="first-agent-suggestions-title">
-          <h2 id="first-agent-suggestions-title">{t("agent.setup.suggestions")}</h2>
-          <div
-            class={`first-agent-suggestion-viewport${canScrollSuggestionsBack() ? " can-scroll-back" : ""}${canScrollSuggestionsForward() ? " can-scroll-forward" : ""}${draggingSuggestions() ? " is-dragging" : ""}`}
-          >
-            <ul
-              ref={suggestionList}
-              class="first-agent-suggestion-list"
-              onScroll={updateSuggestionFades}
-              onPointerDown={startSuggestionDrag}
-              onPointerMove={moveSuggestionDrag}
-              onPointerUp={finishSuggestionDrag}
-              onPointerCancel={finishSuggestionDrag}
+        <Show when={props.suggestions.length > 0}>
+          <section class="first-agent-suggestions" aria-labelledby="first-agent-suggestions-title">
+            <h2 id="first-agent-suggestions-title">{t("agent.setup.suggestions")}</h2>
+            <div
+              class={`first-agent-suggestion-viewport${canScrollSuggestionsBack() ? " can-scroll-back" : ""}${canScrollSuggestionsForward() ? " can-scroll-forward" : ""}${draggingSuggestions() ? " is-dragging" : ""}`}
             >
-              <For each={props.suggestions}>
-                {(suggestion) => (
-                  <li class="first-agent-suggestion-item">
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      class="first-agent-suggestion-card"
-                      data-animation-offset={suggestion.animationOffset}
-                      aria-label={t("agent.setup.suggestion.label", {
-                        name: t(suggestion.nameKey),
-                        description: t(suggestion.descriptionKey),
-                      })}
-                      aria-pressed={props.value.suggestionId === suggestion.id ? "true" : "false"}
-                      data-cuelume-tap="select"
-                      disabled={props.submitting}
-                      onClick={() => {
-                        if (!suppressSuggestionClick) selectSuggestion(suggestion);
-                      }}
-                    >
-                      <AgentAvatar
-                        seed={suggestion.avatarSeed}
-                        hue={suggestion.avatarHue}
-                        motion="always"
-                        animationOffset={suggestion.animationOffset}
-                      />
-                      <span>
-                        <strong>{t(suggestion.nameKey)}</strong>
-                        <small>{t(suggestion.descriptionKey)}</small>
-                      </span>
-                    </Button>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </div>
-        </section>
+              <ul
+                ref={suggestionList}
+                class="first-agent-suggestion-list"
+                onScroll={updateSuggestionFades}
+                onPointerDown={startSuggestionDrag}
+                onPointerMove={moveSuggestionDrag}
+                onPointerUp={finishSuggestionDrag}
+                onPointerCancel={finishSuggestionDrag}
+              >
+                <For each={props.suggestions}>
+                  {(suggestion) => (
+                    <li class="first-agent-suggestion-item">
+                      <Button
+                        variant="ghost"
+                        type="button"
+                        class="first-agent-suggestion-card"
+                        data-animation-offset={suggestion.animationOffset}
+                        aria-label={t("agent.setup.suggestion.label", {
+                          name: t(suggestion.nameKey),
+                          description: t(suggestion.descriptionKey),
+                        })}
+                        aria-pressed={props.value.suggestionId === suggestion.id ? "true" : "false"}
+                        data-cuelume-tap="select"
+                        disabled={props.submitting}
+                        onClick={() => {
+                          if (!suppressSuggestionClick) selectSuggestion(suggestion);
+                        }}
+                      >
+                        <AgentAvatar
+                          seed={suggestion.avatarSeed}
+                          hue={suggestion.avatarHue}
+                          motion="always"
+                          animationOffset={suggestion.animationOffset}
+                        />
+                        <span>
+                          <strong>{t(suggestion.nameKey)}</strong>
+                          <small>{t(suggestion.descriptionKey)}</small>
+                        </span>
+                      </Button>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </div>
+          </section>
+        </Show>
       </div>
     </main>
   );

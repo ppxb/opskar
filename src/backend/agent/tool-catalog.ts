@@ -6,6 +6,50 @@ import type { DynamicToolCallParams } from "../protocol";
 import { advertisedJsonSchema } from "./advertised-json-schema";
 import { toolGuidance } from "./tool-guidance";
 
+/** Fixed capabilities of the host. Omitted values keep the desktop tool catalog. */
+export interface HostToolCapabilities {
+  browser?: boolean;
+  automation?: boolean;
+  prompts?: boolean;
+}
+
+const INTERACTIVE_TOOLS: ReadonlySet<string> = new Set([
+  "openbot.ask_user",
+  "openbot.ask_ui",
+  "openbot.acknowledge_request",
+  "openbot.request_api_key",
+  "openbot_browser.request_takeover",
+  "openbot_browser.submit_secret",
+  "openbot_browser.request_vault_item",
+  "openbot_browser.request_link_payment",
+]);
+
+/** Checks direct calls as well as discovery, so a remembered tool cannot bypass a missing capability. */
+export function hostToolAvailable(
+  namespace: string | null,
+  tool: string,
+  capabilities: HostToolCapabilities = {},
+): boolean {
+  if (capabilities.prompts === false && INTERACTIVE_TOOLS.has(`${namespace}.${tool}`)) return false;
+  if (
+    capabilities.browser === false &&
+    (namespace === OPENBOT_BROWSER_NAMESPACE ||
+      (namespace === "openbot" && (tool === "capture_screen" || tool === "list_capture_sources")))
+  )
+    return false;
+  if (
+    capabilities.automation === false &&
+    namespace === "openbot" &&
+    (tool.includes("routine") ||
+      tool.includes("channel") ||
+      tool === "await_event" ||
+      tool === "close_wait" ||
+      tool === "list_waits")
+  )
+    return false;
+  return true;
+}
+
 /** Discovery changes visibility only. Original definitions and execution owners stay authoritative. */
 export const BUILTIN_TOOL_CATALOG = [OPENBOT_DYNAMIC_TOOLS, ...BROWSER_DYNAMIC_TOOLS].flatMap((namespace) =>
   namespace.tools.map((tool) => ({
@@ -91,6 +135,25 @@ export const VISIBLE_DYNAMIC_TOOLS = [
   },
 ];
 
+export function visibleDynamicTools(capabilities: HostToolCapabilities = {}): typeof VISIBLE_DYNAMIC_TOOLS {
+  if (capabilities.browser !== false && capabilities.automation !== false && capabilities.prompts !== false)
+    return VISIBLE_DYNAMIC_TOOLS;
+  const catalog = BUILTIN_TOOL_CATALOG.filter((entry) => hostToolAvailable(entry.namespace, entry.tool, capabilities))
+    .map((entry) => entry.name)
+    .join(", ");
+  return VISIBLE_DYNAMIC_TOOLS.map((namespace) => ({
+    ...namespace,
+    description: "OpenBot tools. Search, then call the available built-in tools.",
+    tools: namespace.tools
+      .filter((tool) => hostToolAvailable(namespace.name, tool.name, capabilities))
+      .map((tool) =>
+        tool.name === "tool_search"
+          ? { ...tool, description: tool.description.replace(INITIAL_TOOL_CATALOG, catalog) }
+          : tool,
+      ),
+  }));
+}
+
 /**
  * Claude names a bridge call `mcp__openbot__tool_call`. Readers of its items get the name of the tool it
  * calls, in the form Claude gives a direct tool. A name outside the catalog is model text and stays out.
@@ -126,11 +189,14 @@ function requireTool(name: string) {
 }
 
 /** Returns null for an invalid envelope. No supplied values are echoed into errors or logs. */
-export function resolveDeferredTool(params: DynamicToolCallParams): DynamicToolCallParams | null {
+export function resolveDeferredTool(
+  params: DynamicToolCallParams,
+  capabilities: HostToolCapabilities = {},
+): DynamicToolCallParams | null {
   const parsed = callSchema.safeParse(params.arguments);
   if (!parsed.success) return null;
   const entry = BUILTIN_TOOL_CATALOG.find((tool) => tool.name === parsed.data.name);
-  if (!entry) return null;
+  if (!entry || !hostToolAvailable(entry.namespace, entry.tool, capabilities)) return null;
   return { ...params, namespace: entry.namespace, tool: entry.tool, arguments: parsed.data.arguments };
 }
 
@@ -158,24 +224,25 @@ function toolGuidanceFor(entries: readonly (typeof BUILTIN_TOOL_CATALOG)[number]
   return [...new Set(entries.flatMap((entry) => toolGuidance(entry.namespace, entry.tool)))];
 }
 
-export function discoverTools(params: DynamicToolCallParams) {
+export function discoverTools(params: DynamicToolCallParams, capabilities: HostToolCapabilities = {}) {
   if (params.tool === "tool_search") {
     const search = searchTerms(params);
     if (!search) throw new Error(sourceText("error.agent.toolRequestInvalid"));
     const { queries, terms } = search;
-    const matches = BUILTIN_TOOL_CATALOG.map((entry, index) => {
-      const nameWords = new Set(words(entry.name));
-      const descriptionWords = new Set(words(entry.description));
-      const exact = queries.some((query) => query === entry.name || query === entry.tool);
-      // A strong result matches each word of its tool name. Namespace words, such as "browser", match a whole
-      // namespace, and one shared verb, such as "read", matches many unrelated tools.
-      const strong = exact || words(entry.tool).every((word) => terms.has(word));
-      const score = [...terms].reduce(
-        (sum, term) => sum + (nameWords.has(term) ? 3 : descriptionWords.has(term) ? 1 : 0),
-        0,
-      );
-      return { entry, index, exact, strong, score };
-    })
+    const matches = BUILTIN_TOOL_CATALOG.filter((entry) => hostToolAvailable(entry.namespace, entry.tool, capabilities))
+      .map((entry, index) => {
+        const nameWords = new Set(words(entry.name));
+        const descriptionWords = new Set(words(entry.description));
+        const exact = queries.some((query) => query === entry.name || query === entry.tool);
+        // A strong result matches each word of its tool name. Namespace words, such as "browser", match a whole
+        // namespace, and one shared verb, such as "read", matches many unrelated tools.
+        const strong = exact || words(entry.tool).every((word) => terms.has(word));
+        const score = [...terms].reduce(
+          (sum, term) => sum + (nameWords.has(term) ? 3 : descriptionWords.has(term) ? 1 : 0),
+          0,
+        );
+        return { entry, index, exact, strong, score };
+      })
       .filter((result) => result.exact || result.score > 0)
       .sort((a, b) => Number(b.exact) - Number(a.exact) || b.score - a.score || a.index - b.index);
     const found = matches.slice(0, search.limit ?? 5).map(({ entry, strong }) => ({ entry, strong }));
@@ -199,7 +266,7 @@ export function discoverTools(params: DynamicToolCallParams) {
     );
     const guidance = toolGuidanceFor([...ready]);
     const result = guidance.length > 0 ? { tools, guidance } : { tools };
-    return found.some(({ entry }) => entry.namespace === OPENBOT_BROWSER_NAMESPACE)
+    return capabilities.browser === false || found.some(({ entry }) => entry.namespace === OPENBOT_BROWSER_NAMESPACE)
       ? result
       : { ...result, note: BROWSER_SEARCH_NOTE };
   }
@@ -207,6 +274,8 @@ export function discoverTools(params: DynamicToolCallParams) {
   if (!parsed.success) throw new Error(sourceText("error.agent.toolRequestInvalid"));
   const names = [...(parsed.data.names ?? []), ...(parsed.data.name ? [parsed.data.name] : [])];
   const entries = [...new Set(names)].map(requireTool);
+  if (entries.some((entry) => !hostToolAvailable(entry.namespace, entry.tool, capabilities)))
+    throw new Error(sourceText("error.agent.toolRequestInvalid"));
   return {
     tools: entries.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })),
     guidance: toolGuidanceFor(entries),

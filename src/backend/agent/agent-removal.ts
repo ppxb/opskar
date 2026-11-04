@@ -37,7 +37,7 @@ export interface AgentRemovalOptions {
   store: AgentStore;
   mailbox: MailboxStore;
   conversation: ConversationRuntime;
-  browser: AgentBrowserHost;
+  browser: AgentBrowserHost | null;
   channels: ChannelService;
   messaging: MessagingThreads;
   routines: RoutineScheduler;
@@ -71,7 +71,7 @@ export class AgentRemoval {
   readonly #store: AgentStore;
   readonly #mailbox: MailboxStore;
   readonly #conversation: ConversationRuntime;
-  readonly #browser: AgentBrowserHost;
+  readonly #browser: AgentBrowserHost | null;
   readonly #channels: ChannelService;
   readonly #messaging: MessagingThreads;
   readonly #routines: RoutineScheduler;
@@ -232,9 +232,11 @@ export class AgentRemoval {
     );
     yield* this.closeBrowserTabs(agent);
     // Nobody can use the sign-ins of a deleted agent again.
-    const cleared = yield* Effect.result(this.#browser.clearAgentSession(agent.id));
-    if (Result.isFailure(cleared))
-      this.#logger.warn("Could not clear a deleted agent's browser session.", removalErrorCode(cleared.failure));
+    if (this.#browser) {
+      const cleared = yield* Effect.result(this.#browser.clearAgentSession(agent.id));
+      if (Result.isFailure(cleared))
+        this.#logger.warn("Could not clear a deleted agent's browser session.", removalErrorCode(cleared.failure));
+    }
     yield* removalStep(() => {
       this.#conversation.forgetAgent(agent.id);
       this.#turn.forgetAgent(agent.id);
@@ -267,6 +269,7 @@ export class AgentRemoval {
     this: AgentRemoval,
     agent: Pick<AgentSummary, "id" | "threadId">,
   ) {
+    if (!this.#browser) return;
     const owned = this.#browser
       .listTabs()
       .filter((tab) =>

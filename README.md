@@ -132,12 +132,12 @@ cipher. The Node host uses its own file and does not import or decrypt desktop c
 
 The local Web entry reuses the existing workspace frame, sidebar, conversation header and message
 components. After password sign-in, `/` shows real Agent records and saved conversation pages from
-the Node database. This first workspace slice is read-only: select an Agent, load earlier messages,
-refresh, and sign out. It does not start agents, tools, inspection schedules or CI/CD jobs.
+the Node database. By default it is read-only: select an Agent, load earlier messages, refresh,
+and sign out. Add the explicit execution options below to run local Agents through OpenCode.
 
 The local view has its own data source. It does not construct a cloud account or connect through
-Signal or WebRTC. Unavailable write actions are hidden. Agent execution and the full interactive
-conversation controller still need migration. A new data directory shows an empty workspace;
+Signal or WebRTC. Unavailable actions are hidden. The full desktop conversation controller and
+its integrations still need migration. A new data directory shows an empty workspace;
 this entry does not seed Agents or import an existing desktop profile.
 
 Prepare two separate private files outside the data directory. The encryption file has the format
@@ -171,8 +171,8 @@ downloads are not active. Known secrets are redacted before replies reach the br
 records remain unchanged. Markdown images appear as links and do not load automatically.
 
 Open **Provider settings**, or visit `/settings/providers`, to use the existing configuration and
-connection-test page. It shares the local session. This temporary settings route remains until
-the original Provider settings workflow is connected to Agent execution.
+connection-test page. It shares the local session and supplies the encrypted profile that Agent
+execution uses. Moving it into the complete original settings workflow remains separate work.
 
 Enter the API base URL, model ID and API key, then select **Save** and **Test connection**. A base
 URL such as `https://api.deepseek.com/v1` sends the test to `/v1/chat/completions`. Use a model ID
@@ -205,6 +205,52 @@ the executable named by `OPSKAR_E2E_BROWSER_PATH`. Reports and screenshots are u
 authenticated reads, paging, selection, refresh, sign-out, redaction, restart and the absence of
 cloud requests in a real browser. Its report and screenshot are under
 `.openbot-build/server-workspace/`. The tests do not use a mocked workspace API.
+
+### Run Agents in the local workspace
+
+Execution requires Node.js 24, an operator-supplied OpenCode 2 executable, the Web password file,
+and the credential key file described above. The server uses only the exact executable you name;
+it does not install a runtime or select a different global copy. The current verification uses
+the repository-pinned OpenCode 2.1.1 binary.
+
+```powershell
+bun run server:web --data-dir .openbot/server --port 3080 --execute --opencode-path E:\tools\opencode.exe
+```
+
+Sign in, save an OpenAI-compatible endpoint in **Provider settings**, return to the workspace,
+and select **New agent**. After creating the Agent, send a task from its message box. Text and
+execution state update through an authenticated event stream. **Stop agent** interrupts the
+current turn. A failed send keeps its text and retry ID; repeating the same accepted request does
+not enqueue it twice. Creation has no retry ID, so refresh and check the list after a lost reply
+before creating it again.
+
+The Node host reuses AgentService, its durable mailbox, turn execution and recovery. It initializes
+the shared stores once. The single configured endpoint runs as `opencode`, with model IDs under
+`opskar-local/`. Its API key is an endpoint credential, not an OpenCode Go credential. The starting
+model budget is a 32K context and 4K output; the configured gateway must support that request.
+Provider changes wait until there is no active turn. Queued messages remain stored while the
+service applies a corrected profile, and local Agents keep their IDs, workspaces and threads.
+
+Tools run with the operating-system permissions of the server account. The existing Full access
+agent policy approves command/file requests; use a dedicated service account for deployment.
+This slice creates Full access Agents. Saved Agents with other access modes remain readable,
+but their message controls stay disabled until those approval flows are implemented.
+This first execution mode has no browser/Computer Use, scheduled or channel work, or interactive
+question forms. Those tools are omitted and direct calls are refused. Background memory reviews
+are disabled. Existing scheduled/channel deliveries stay stored for a later supported runtime.
+
+OpenCode's home, configuration, cache, state and service settings stay under
+`<data-dir>/provider-runtime`. The server clears inherited secret variables for the child and
+uses the configured Provider key only for that endpoint. It owns the OpenCode service port and
+stops the service after stopping Agent clients. Workspace files and conversation records remain
+available after restart. This is still a loopback development entry; production assets, TLS,
+Docker packaging, Gitea and CI/CD integration are not included yet.
+
+Run `bun run test:server-agent <absolute-opencode-path>` for the real execution E2E. It uses the
+actual OpenCode binary and a local model fixture, verifies a real tool-created file, cancellation,
+idempotency, event reconnection, session revocation, configuration recovery and another turn after
+restart. Reports and screenshots are under `.openbot-build/server-agent/`. It needs no external
+AI credentials and does not install the executable.
 
 ## Commands
 

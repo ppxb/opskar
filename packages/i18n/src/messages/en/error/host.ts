@@ -1,6 +1,18 @@
 import { defineMessages } from "../../../message";
 
 export const messages = defineMessages("error.host", {
+  "error.host.agentAccessUnavailable":
+    "This agent requires an approval or workspace-only mode that the local console does not yet support.",
+  "error.host.agentUnavailable": "Agent execution is not ready. Check the configured Provider and server runtime.",
+  "error.host.agentOperation":
+    "The agent operation failed. Check the server log and refresh the workspace before you try again.",
+  "error.host.agentModelInvalid":
+    "This model is not available to the local agent runtime. Use a valid model ID in the configured Provider.",
+  "error.host.agentBusy": "Stop or finish pending agent work before changing the Provider settings.",
+  "error.host.agentStartFailed":
+    "The agent runtime could not start. Check the OpenCode executable and the configured Provider.",
+  "error.host.agentUpdatesDisconnected":
+    "Live updates are disconnected. The browser will reconnect; you can also refresh the workspace.",
   "error.host.localWorkspaceAgentMissing": "This agent is not in the local workspace.",
   "error.host.localWorkspaceInput":
     "The workspace request or history cursor is invalid. Reload the workspace and try again.",

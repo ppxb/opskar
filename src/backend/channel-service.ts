@@ -53,6 +53,8 @@ import type { OpenBotDatabase } from "./openbot-database";
 import { extractJsonObject, StructuredOutputError } from "./structured-output";
 
 export interface ChannelHooks {
+  /** Fixed host capability. Disabled hosts retain channel data without starting assignments. */
+  executionEnabled?(): boolean;
   agents(): AgentSummary[];
   /**
    * Whether the user hid this agent. A hidden member keeps its membership, but the channel gives it
@@ -857,7 +859,7 @@ export class ChannelService {
   readonly wake = Effect.fn("ChannelService.wake")(
     (channelId?: string): Effect.Effect<void, ChannelOperationError> =>
       Effect.gen({ self: this }, function* () {
-        if (this.#stopped) return;
+        if (this.#stopped || this.hooks.executionEnabled?.() === false) return;
         const archived = yield* channelSync(() => this.store.archivedIds());
         for (const id of yield* channelSync(() => this.store.ids())) {
           if (this.#deletedChannels.has(id)) continue;
@@ -1016,7 +1018,7 @@ export class ChannelService {
     channelId: string,
   ): Effect.fn.Return<void, ChannelOperationError> {
     for (const candidate of yield* channelSync(() => this.store.tasks(channelId))) {
-      if (this.#stopped || this.#deletedChannels.has(channelId)) return;
+      if (this.#stopped || this.hooks.executionEnabled?.() === false || this.#deletedChannels.has(channelId)) return;
       let channel = yield* channelSync(() => this.store.get(channelId));
       if (channel.archived) return;
       const candidateTask = (yield* channelSync(() => this.store.tasks(channelId))).find(

@@ -15,6 +15,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { redactText } from "@openbot/logging";
 import { Effect, Schema } from "effect";
 import { writeJsonFileAtomically } from "../backend/atomic-json-file";
+import type { ServerAgentControl } from "./server-agent";
 import type { ConsoleAuth } from "./server-console-auth";
 import { ConsoleFailure } from "./server-console-error";
 import { ServerStartupFailed } from "./server-options";
@@ -47,6 +48,7 @@ function visibleAgent(agent: AgentSummary): ClientAgentSummary {
     provider: agent.provider,
     model: model === agent.model ? model : "redacted",
     reasoningEffort: agent.reasoningEffort,
+    ...(agent.access === undefined ? {} : { access: agent.access }),
     threadId: agent.threadId,
     workspacePath: displayText(agent.workspacePath, INPUT_LIMITS.path),
     preview: displayText(agent.preview, INPUT_LIMITS.messageText),
@@ -69,7 +71,7 @@ function visibleAttachment(attachment: AttachmentSummary): AttachmentSummary {
   };
 }
 
-/** This read-only surface returns text and attachment labels, not executable cards or file URLs. */
+/** Workspace reads return text and attachment labels, not executable cards or file URLs. */
 function visibleMessage(message: ConversationMessage): ConversationMessage {
   return {
     id: message.id,
@@ -93,7 +95,10 @@ function visibleMessage(message: ConversationMessage): ConversationMessage {
   };
 }
 
-export const acquireLocalWorkspace = Effect.fn("acquireLocalWorkspace")(function* (auth: ConsoleAuth) {
+export const acquireLocalWorkspace = Effect.fn("acquireLocalWorkspace")(function* (
+  auth: ConsoleAuth,
+  execution: ServerAgentControl,
+) {
   const { agents, database, paths } = yield* ServerStorage;
   const identityPath = join(paths.dataDirectory, SERVER_WORKSPACE_FILE);
   const saved = yield* Effect.tryPromise({
@@ -122,7 +127,8 @@ export const acquireLocalWorkspace = Effect.fn("acquireLocalWorkspace")(function
         return {
           workspaceId: identity.workspaceId,
           name: sourceText("status.host.localWorkspace"),
-          mode: "read-only",
+          mode: execution.enabled ? "interactive" : "read-only",
+          execution: execution.state(),
           agents: list,
           sidebarLayout: {
             revision: 0,

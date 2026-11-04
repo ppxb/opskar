@@ -211,7 +211,7 @@ export interface TurnLifecycleOptions {
   memories: AgentMemories;
   instructions: InstructionsChanges;
   attention: AttentionRegistry;
-  browser: AgentBrowserHost;
+  browser: AgentBrowserHost | null;
   compaction: ContextCompaction;
   images: ImageGenRuntime;
   deltas: DeltaBuffer;
@@ -238,7 +238,7 @@ export class TurnLifecycle {
   readonly #memories: AgentMemories;
   readonly #instructions: InstructionsChanges;
   readonly #attention: AttentionRegistry;
-  readonly #browser: AgentBrowserHost;
+  readonly #browser: AgentBrowserHost | null;
   readonly #compaction: ContextCompaction;
   readonly #images: ImageGenRuntime;
   readonly #deltas: DeltaBuffer;
@@ -420,7 +420,7 @@ export class TurnLifecycle {
         this.#traces.drop(turnId);
         this.#instructions.dropTurn(turn.agentId, turnId);
         // The client is gone, so no browser tool of this turn can run. Other agents keep their controls.
-        this.#browser.endControl(this.#conversation.publicThreadId(turn.agentId, turn.threadId), turnId);
+        this.#browser?.endControl(this.#conversation.publicThreadId(turn.agentId, turn.threadId), turnId);
         // The turn does not end here, so a provider error held for a failover shows now.
         const failover = this.#failoverTurns.get(turnId);
         this.#failoverTurns.delete(turnId);
@@ -955,7 +955,7 @@ export class TurnLifecycle {
         failover !== undefined && !limited && status === "failed" && running !== undefined && !running.acted;
       const shouldCompact =
         !refused && !limited && !mayRunAgain && !routineSession && this.#compaction.reserve(agentId, threadId);
-      this.#browser.endControl(this.#conversation.publicThreadId(agentId, threadId), turnId);
+      this.#browser?.endControl(this.#conversation.publicThreadId(agentId, threadId), turnId);
       const snapshot = this.#conversation.ensureSnapshot(agentId, threadId);
       snapshot.activeTurnId = null;
       const deliveries = this.#mailbox.findDeliveriesByTurn(agentId, turnId);
